@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlowPy — node IDE for MicroPython</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+<div id="top">
+  <div class="brand">Flow<span>Py</span></div>
+  <button id="bNew">New</button>
+  <button id="bLoad">Open…</button>
+  <button id="bSave">Save</button>
+  <input id="fileIn" type="file" accept=".json" style="display:none">
+  <div class="sep"></div>
+  <button id="bConnect" class="pri">Connect device</button>
+  <button id="bDeploy" class="ok" disabled>Deploy ▶</button>
+  <button id="bPatch" disabled title="Push code changes without resetting state">Live patch ⚡</button>
+  <button id="bStop" disabled>Stop ■</button>
+  <div class="sep"></div>
+  <button id="bSim">Simulate ▶</button>
+  <select id="engine" title="simulation engine">
+    <option value="auto">engine: auto</option>
+    <option value="py">engine: Python (Pyodide, exact)</option>
+    <option value="js">engine: fast (offline)</option>
+  </select>
+  <div class="sep"></div>
+  <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="cbVals" checked style="width:auto"> values</label>
+  <div class="sp"></div>
+  <button id="bHelp" title="help">?</button>
+  <div id="status"><span class="dot" id="dot"></span><span id="statusTxt">idle</span></div>
+</div>
+<div id="main">
+  <div id="left">
+    <div class="panelhd">Blocks <span class="sp" style="flex:1"></span>
+      <button id="bNewF" title="New stateless function">+F</button>
+      <button id="bNewFB" title="New function block (stateful)">+FB</button>
+    </div>
+    <div class="scroll" style="flex:1"><div id="pal"></div></div>
+  </div>
+  <div id="center">
+    <div id="cwrap">
+      <div id="world">
+        <svg id="wires"><g id="wireg" transform="translate(20000,20000)"></g></svg>
+        <div id="nodes"></div>
+      </div>
+      <div id="crumb"></div>
+      <div id="hint">drag a block → everything it feeds follows · alt-drag = move alone · blocks push each other apart, wires stay minimum length · <span style="color:#c9a4ff">shift while wiring = feedback, next scan (z⁻¹)</span></div>
+    </div>
+    <div id="bottom">
+      <div id="conhd"><b>Console</b><span id="rate"></span><span class="sp" style="flex:1"></span>
+        <button id="bClear">clear</button><button id="bMin">▾</button></div>
+      <div id="con" class="scroll"></div>
+    </div>
+  </div>
+  <div id="right">
+    <div class="tabs">
+      <div class="tab on" data-t="insp">Inspector</div>
+      <div class="tab" data-t="type">Type</div>
+      <div class="tab" data-t="vars">Vars</div>
+      <div class="tab" data-t="code">Code</div>
+    </div>
+    <div class="tabbody" id="tb-insp"></div>
+    <div class="tabbody" id="tb-type" style="display:none"></div>
+    <div class="tabbody" id="tb-vars" style="display:none"></div>
+    <div class="tabbody" id="tb-code" style="display:none"></div>
+  </div>
+</div>
+</div>
+<div id="ghost"></div>
+<div id="modal"><div class="mbox" id="mbox"></div></div>
+<script src="js/model.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/router.js"></script>
+<script src="js/codegen.js"></script>
+<script src="js/sim-fast.js"></script>
+<script src="js/device.js"></script>
+</body>
+</html>

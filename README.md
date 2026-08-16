@@ -1,15 +1,32 @@
 # FlowPy — browser node/flow IDE that deploys MicroPython
 
-One file: `flowpy.html`. Open it in Chrome or Edge (double-click, or serve it). No install, no build, no server.
+Static site, no build step: `index.html` + `css/style.css` + `js/*.js`. Open `index.html` in Chrome or Edge, or serve the folder — no install, no build required.
+
+```
+FlowPy/
+├── index.html        markup only
+├── css/style.css      all styles
+└── js/
+    ├── model.js       project model, builtin block library, grid geometry
+    ├── editor.js       canvas/palette UI, drag & wire interactions, inspector, tabs
+    ├── router.js       orthogonal wire routing (A* around obstacles)
+    ├── codegen.js       MicroPython code generator + runtime prelude
+    ├── sim-fast.js       offline JS interpreter for the same graph model
+    └── device.js        Web Serial device I/O, Pyodide simulator, project save/load, demo project, boot
+```
+
+Files are loaded as plain (non-module) scripts in dependency order and share one global scope, same as the original single-file build — just split along its existing section boundaries.
 
 ## What it does
 
 | Requirement | How |
 |---|---|
 | Drag blocks around | Drag from the palette onto the canvas; drag headers to move; wheel to zoom, background-drag to pan. **Everything is on a 20 px grid** — positions, block widths/heights, and every port centre, so nothing can sit off-grid |
-| Join outputs and inputs with wires | Drag output port → input port. Drag off an input to detach. One source per input. Wires are **straight orthogonal runs** with the vertical shaft pushed as far left as it goes (one unit clear of the output) and a 45° corner half a unit by half a unit at every turn — stub, corner, shaft, corner, stub. A downstream block sits at least **two units** clear of its source, exactly the room those pieces need. Obstructed wires fall back to an A* search around the blockage, still preferring left-hand verticals |
-| Blocks keep their relationships | Dragging a block carries everything it feeds (transitively) by the same Δx/Δy, so chain spacing survives edits; upstream stays put. **Alt-drag** moves one block alone. Every drag is clamped so no wire can change type — you cannot push a block behind a block it takes input from, and a feedback wire cannot be flattened into a same-scan one. Y is never constrained |
-| Direction = timing | A wire running **left→right** is evaluated in the **same scan**. A wire running **right→left** is drawn dashed violet with a `↺ z⁻¹` tag and carries the **previous scan's** value. Feedback is just a backwards wire — no special block needed |
+| Blocks never overlap | Dropping or dragging a block onto another **pushes the blocks in the way aside**, keeping at least one grid cell clear on some axis. The block you're placing is authoritative — everything else yields |
+| No arbitrarily long wires | A block fed by a forward wire always sits at **exactly** the minimum distance from its source (two grid cells) — never more slack than that. Drag a connected block further away and it snaps straight back the moment you release it; only "root" blocks with no forward input are freely positioned in x |
+| Join outputs and inputs with wires | Drag output port → input port. Drag off an input to detach. One source per input. Wires are **straight orthogonal runs** with the vertical shaft pushed as far left as it goes (one unit clear of the output) and a 45° corner half a unit by half a unit at every turn — stub, corner, shaft, corner, stub. Obstructed wires fall back to an A* search around the blockage, still preferring left-hand verticals |
+| Blocks keep their relationships | Dragging a block carries everything it feeds (transitively) by the same Δx/Δy, so chain spacing survives edits; upstream stays put. **Alt-drag** moves one block alone |
+| Direction = timing | A wire running **left→right** is evaluated in the **same scan**. Connecting normally (no modifier) always produces a forward wire — if you drop it on a block that sits behind the source, that block (and everything it feeds) is snapped forward until it reads left-to-right. **Hold Shift** while dropping the connection to wire it backwards on purpose instead: drawn dashed with a `↺ z⁻¹` tag, it carries the **previous scan's** value. That's the only way to create feedback — no special block needed, and an un-shifted connection can never accidentally close a same-scan loop |
 | New FB / F types in Python | `+F` / `+FB`, Type tab → *Python source*. F = one function body, FB = `__init__` + `step` |
 | New FB / F types as flow diagrams | Type tab → *Flow diagram* → "Open flow implementation". IN/OUT nodes appear automatically from the port list. Nests arbitrarily deep |
 | Boolean wire state | Square ports; wire glows green when TRUE, dim when FALSE |
@@ -52,10 +69,11 @@ attribute: read into a local at the top of `step()`, written back at the end. Th
 built this way (`COUNTER → A > B → back into rst`), which ramps 0…5 and rolls over — reaching 5 rather than 4 precisely
 because the reset arrives one scan late.
 
-Each wire records its type when you draw it, and the editor guarantees geometry keeps agreeing: drags are clamped
-(bounds are computed once per drag from every wire crossing the moving set, so it costs nothing per frame), and if a
-block gets wider — you added ports to one of your own types — its dependents are pushed right until every forward wire
-points forward again.
+Each wire records its type when you draw it, and the editor guarantees geometry keeps agreeing. Connecting without
+Shift only ever produces a forward wire — a target behind its source is snapped ahead first. After every edit, a
+relayout pass pulls every forward-fed block to the exact minimum distance from its source (never more, never less)
+and pushes apart any blocks left overlapping — so this holds after a drag, a resize (new ports on one of your own
+types), or a load, not just at the moment a wire is drawn.
 
 The **DELAY z⁻¹** block is still there for when you want an explicit delay on a forward-running wire.
 
