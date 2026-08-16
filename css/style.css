@@ -3,11 +3,11 @@
   --fg:#dfe6f0; --fg2:#94a3b8; --acc:#4fa3ff; --acc2:#2b6fc2;
   --ok:#22e06a; --warn:#f5b23f; --err:#ff5d5d;
   --fb:#7c5cff; --f:#00b3a4; --io:#f5883f; --varc:#e0679b; --konst:#8a94a6;
-  --r:6px; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --r:6px; --mono:"JetBrains Mono","IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--fg);font:13px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden}
+body{background:var(--bg);color:var(--fg);font:13px/1.45 var(--mono);overflow:hidden}
 button,input,select,textarea{font-family:inherit;font-size:12px;color:var(--fg)}
 button{background:var(--bg3);border:1px solid var(--line);border-radius:var(--r);padding:5px 10px;cursor:pointer}
 button:hover{background:#232c39;border-color:var(--line2)}
@@ -134,6 +134,8 @@ pre.code{width:100%;font:11px/1.45 var(--mono);background:#0b0e13;border:1px sol
 .mbox h3{margin:0 0 12px;font-size:14px}
 .mrow{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 #ghost{position:fixed;pointer-events:none;z-index:200;opacity:.85;display:none}
+#valtip{position:fixed;pointer-events:none;z-index:250;display:none;font:11px/1 var(--mono);
+  background:#000;color:#fff;border:1px solid #fff;padding:3px 6px;white-space:nowrap}
 
 /* ======= sharp corners everywhere ======= */
 button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
@@ -154,6 +156,9 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node .pfield input{background:#000;border:1px solid #fff;color:#fff}
 .node .hd .ttl-edit{background:#fff;border:1px solid #000;color:#000}
 .node.auto{border-style:dashed}
+.node.vbox .port{opacity:0;pointer-events:none;transition:opacity .12s}
+.node.vbox:hover .port{opacity:1;pointer-events:auto}
+.node.vbox .port.wired{opacity:1;pointer-events:auto}
 .port{width:10px;height:10px;background:#000;border:1px solid #fff;border-radius:50%;box-shadow:none}
 .port.bool{border-radius:0}
 .port:hover,.port.tgt{background:#fff;border-color:#fff;box-shadow:0 0 6px #fff}

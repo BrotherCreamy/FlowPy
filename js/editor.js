@@ -10,6 +10,24 @@ let LIVE={};                          // slotKey -> value (current graph path)
 let RANGE={};                         // slotKey -> {lo,hi}
 let showVals=true;
 
+/* ---------- hover value tooltip (wires, input ports, input labels) ------ */
+const valTip=el('div',{id:'valtip'});
+document.body.append(valTip);
+function hookValueHover(elm,keyFn){
+  elm.addEventListener('mousemove',e=>{
+    const key=keyFn();
+    if(key==null||!(key in LIVE)){ valTip.style.display='none'; return; }
+    valTip.textContent=fmt(LIVE[key]);
+    valTip.style.left=(e.clientX+14)+'px'; valTip.style.top=(e.clientY-10)+'px';
+    valTip.style.display='block';
+  });
+  elm.addEventListener('mouseleave',()=>{ valTip.style.display='none'; });
+}
+function inputKeyFn(nodeId,idx){
+  return ()=>{ const g=G(); const w=g.wires.find(x=>x.t[0]===nodeId&&x.t[1]===idx);
+    return w? slotKey(w.f[0],w.f[1]) : null; };
+}
+
 const curType = ()=> view.stack.length? P_.types[view.stack[view.stack.length-1].typeId] : null;
 const curPath = ()=> view.stack.length? view.stack[view.stack.length-1].path : '';
 const G = ()=> { const t=curType(); return t? (t.graph||(t.graph={nodes:[],wires:[]})) : P_.main; };
@@ -32,8 +50,7 @@ function renderPalette(){
   // special nodes
   const sg=el('div',{cls:'palgroup'},el('div',{cls:'t'},'Basics'));
   sg.append(palItem({name:'CONST',kind:'K'},'const'));
-  sg.append(palItem({name:'GET var',kind:'V'},'vget'));
-  sg.append(palItem({name:'SET var',kind:'V'},'vset'));
+  sg.append(palItem({name:'VARIABLE',kind:'V'},'var'));
   pal.append(sg);
   for(const g of order){ if(!groups[g]) continue;
     const d=el('div',{cls:'palgroup'},el('div',{cls:'t'},g));
@@ -67,7 +84,7 @@ function addNode(kind,t,x,y){
   const g=G(); const n={id:uid('n'),k:kind,x:snap(x),y:snap(y)};
   if(kind==='blk'){ n.type=t.id; n.params={}; (t.params||[]).forEach(p=>n.params[p.name]=p.def); }
   if(kind==='const'){ n.value=1; n.vtype='num'; }
-  if(kind==='vget'||kind==='vset'){ if(!P_.vars.length){ toast('Create a variable first (Vars tab)'); return; } n.varName=P_.vars[0].name; }
+  if(kind==='vget'||kind==='vset'||kind==='var'){ if(!P_.vars.length){ toast('Create a variable first (Vars tab)'); return; } n.varName=P_.vars[0].name; }
   g.nodes.push(n); selectOnly(n.id); _relayoutAnchors=[n.id]; renderGraph(); markDirty(); return n;
 }
 
@@ -131,7 +148,8 @@ function titleEl(n){
 }
 function buildNode(n){
   const s=nodeSize(n), p=portsOf(n);
-  const d=el('div',{cls:'node '+nodeKindClass(n)+(n.auto?' auto':'')+(sel.nodes.has(n.id)?' sel':''),'data-id':n.id});
+  const isVarBox=n.k==='var';
+  const d=el('div',{cls:'node '+nodeKindClass(n)+(n.auto?' auto':'')+(isVarBox?' vbox':'')+(sel.nodes.has(n.id)?' sel':''),'data-id':n.id});
   d.style.cssText=`left:${n.x}px;top:${n.y}px;width:${s.w}px;height:${s.h}px`;
   const t = n.k==='blk'?typeOf(n.type):null;
   const hd=el('div',{cls:'hd'});
@@ -139,13 +157,19 @@ function buildNode(n){
   hd.append(titleEl(n));
   d.append(hd);
   const body=el('div',{cls:'body'});
+  const gg=G();
   p.ins.forEach((pt,i)=>{
     const y=GRID*(2+i)-HDR;
-    body.append(el('div',{cls:'port'+(pt.type==='bool'?' bool':''),style:`left:-5px;top:${y-5}px`,'data-n':n.id,'data-s':'in','data-i':i,title:pt.name+':'+pt.type}));
-    if(pt.name) body.append(el('div',{cls:'plabel',style:`left:12px;top:${y-7}px`},pt.name)); });
+    const wired=isVarBox&&gg.wires.some(w=>w.t[0]===n.id&&w.t[1]===i);
+    const port=el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:-5px;top:${y-5}px`,'data-n':n.id,'data-s':'in','data-i':i,title:isVarBox?'set '+n.varName:pt.name+':'+pt.type});
+    hookValueHover(port,inputKeyFn(n.id,i));
+    body.append(port);
+    if(pt.name){ const lbl=el('div',{cls:'plabel',style:`left:12px;top:${y-7}px`},pt.name);
+      hookValueHover(lbl,inputKeyFn(n.id,i)); body.append(lbl); } });
   p.outs.forEach((pt,i)=>{
     const y=GRID*(2+i)-HDR;
-    body.append(el('div',{cls:'port'+(pt.type==='bool'?' bool':''),style:`left:${s.w-5}px;top:${y-5}px`,'data-n':n.id,'data-s':'out','data-i':i,title:pt.name+':'+pt.type}));
+    const wired=isVarBox&&gg.wires.some(w=>w.f[0]===n.id&&w.f[1]===i);
+    body.append(el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:${s.w-5}px;top:${y-5}px`,'data-n':n.id,'data-s':'out','data-i':i,title:isVarBox?'get '+n.varName:pt.name+':'+pt.type}));
     if(pt.name) body.append(el('div',{cls:'plabel',style:`right:12px;top:${y-7}px;text-align:right`},pt.name)); });
   if(hasField(n)){
     const rows=Math.max(p.ins.length,p.outs.length,1);
@@ -165,8 +189,10 @@ const NS='http://www.w3.org/2000/svg';
 function buildWire(w){
   const g=document.createElementNS(NS,'g'); g.setAttribute('data-id',w.id);
   g.innerHTML=`<path class="hit"></path><path class="wire"></path><text class="wlabel" text-anchor="middle"></text>`;
-  g.querySelector('.hit').addEventListener('mousedown',e=>{e.stopPropagation(); selectWire(w.id);});
-  g.querySelector('.hit').addEventListener('dblclick',e=>{e.stopPropagation(); delWire(w.id);});
+  const hit=g.querySelector('.hit');
+  hit.addEventListener('mousedown',e=>{e.stopPropagation(); selectWire(w.id);});
+  hit.addEventListener('dblclick',e=>{e.stopPropagation(); delWire(w.id);});
+  hookValueHover(hit,()=>slotKey(w.f[0],w.f[1]));
   return g;
 }
 function slotKey(nodeId,port){ return nodeId+':'+port; }
@@ -461,16 +487,20 @@ function renderInspector(){
     b.append(el('div',{style:'margin:6px 0;color:var(--fg2)'},(t.kind==='FB'?'stateful function block':'stateless function')+(t.builtin?' · builtin':' · user')));
     if((t.params||[]).length){ b.append(el('div',{cls:'sub'},'Parameters'));
       for(const p of t.params) b.append(paramRow(n,p)); }
+    if(t.kind==='FB'&&(t.refs||[]).length){ b.append(el('div',{cls:'sub'},'Variable references (by reference, not copied per-scan)'));
+      for(const r of t.refs) b.append(refRow(n,r)); }
     if(!t.builtin){ b.append(el('div',{cls:'hr'}));
       b.append(el('button',{onclick:()=> t.impl==='graph'? enterType(t.id,n.id) : openType(t.id)},
         t.impl==='graph'?'Open flow implementation ▸':'Edit Python ▸')); }
   }
   if(n.k==='const'){ b.append(el('div',{cls:'sub'},'Value (python literal)'));
     b.append(inputRow('value',n.value,v=>{n.value=v;n.vtype=guessType(v);renderGraph();markDirty();})); }
-  if(n.k==='vget'||n.k==='vset'){ b.append(el('div',{cls:'sub'},'Variable'));
+  if(n.k==='vget'||n.k==='vset'||n.k==='var'){ b.append(el('div',{cls:'sub'},'Variable'));
     const s=el('select',{onchange:e=>{n.varName=e.target.value;renderGraph();markDirty();}});
     P_.vars.forEach(v=>s.append(el('option',{value:v.name,selected:v.name===n.varName?'':null},v.name+' : '+v.type)));
-    b.append(el('div',{cls:'row'},s)); }
+    b.append(el('div',{cls:'row'},s));
+    if(n.k==='var') b.append(el('div',{style:'margin-top:4px;font-size:11px;color:var(--fg2)'},
+      'hover the left/right edge to reveal the set/get connection point — a point stays visible once wired')); }
   inspectorExtra(b,n);
   const outs=portsOf(n).outs;
   if(outs.length){ b.append(el('div',{cls:'sub'},'Live outputs'));
@@ -486,6 +516,20 @@ function paramRow(n,p){
     c.checked=!!n.params[p.name]; c.onchange=()=>{n.params[p.name]=c.checked;markDirty();}; wrap.append(c); }
   else { const i=el('input',{value:String(n.params[p.name]??p.def)});
     i.onchange=()=>{ n.params[p.name]= p.type==='str'? i.value : Number(i.value); markDirty(); }; wrap.append(i); }
+  return wrap;
+}
+/* a reference slot binds a variable to an FB instance by name (not by value):
+   the constructor receives the variable's attribute name as a string, and the
+   block's own Python code reads/writes it via getattr/setattr(V, self._ref_X)
+   whenever and however it wants — a whole element, only sometimes, etc. —
+   instead of the graph copying a value in/out once every scan. */
+function refRow(n,r){
+  const wrap=el('div',{cls:'row'},el('label',{title:'getattr/setattr(V, self._ref_'+r.name+')'},r.name));
+  const s=el('select');
+  s.append(el('option',{value:''},'— none —'));
+  P_.vars.forEach(v=>s.append(el('option',{value:v.name,selected:((n.refs&&n.refs[r.name])===v.name)?'':null},v.name+' : '+v.type)));
+  s.onchange=()=>{ n.refs=n.refs||{}; n.refs[r.name]=s.value; markDirty(); };
+  wrap.append(s);
   return wrap;
 }
 function inputRow(lbl,val,cb){ const i=el('input',{value:String(val)}); i.onchange=()=>cb(i.value);
@@ -526,6 +570,10 @@ function renderTypeTab(){
   b.append(el('div',{cls:'sub'},'Inputs'));   b.append(portEditor(t,'ins',ro));
   b.append(el('div',{cls:'sub'},'Outputs'));  b.append(portEditor(t,'outs',ro));
   b.append(el('div',{cls:'sub'},'Parameters (constructor args)')); b.append(paramEditor(t,ro));
+  if(t.kind==='FB'){
+    b.append(el('div',{cls:'sub'},'Variable references (bound per instance in the Inspector; access with getattr/setattr(V, self._ref_<name>) — the code decides when and how much to read or write)'));
+    b.append(refEditor(t,ro));
+  }
   b.append(el('div',{cls:'hr'}));
   if(t.impl==='graph'&&!ro){
     b.append(el('button',{cls:'pri',onclick:()=>enterType(t.id,'')},'Open flow implementation ▸'));
@@ -573,6 +621,17 @@ function paramEditor(t,ro){
     renderTypeTab();markDirty();}},'+ add')));
   return box;
 }
+function refEditor(t,ro){
+  const box=el('div',{cls:'plist'});
+  (t.refs||[]).forEach((r,i)=>{
+    const nm=el('input',{value:r.name,disabled:ro?'':null}); nm.onchange=()=>{r.name=nm.value.trim()||r.name;markDirty();};
+    const rm=el('button',{disabled:ro?'':null,onclick:()=>{t.refs.splice(i,1);renderTypeTab();markDirty();}},'×');
+    box.append(el('div',{cls:'pr'},nm,rm));
+  });
+  if(!ro) box.append(el('div',{cls:'pr'},el('button',{onclick:()=>{ (t.refs=t.refs||[]).push({name:'ref'+((t.refs||[]).length+1)});
+    renderTypeTab();markDirty();}},'+ add')));
+  return box;
+}
 function codeBox(t,key,label,ro){
   const w=el('div');
   w.append(el('div',{cls:'sub'},label));
@@ -611,7 +670,10 @@ function renderVars(){
 }
 function renameVar(oldN,newN){
   const v=P_.vars.find(v=>v.name===oldN); if(!v) return; v.name=newN;
-  const walk=g=>g.nodes.forEach(n=>{ if((n.k==='vget'||n.k==='vset')&&n.varName===oldN) n.varName=newN; });
+  const walk=g=>g.nodes.forEach(n=>{
+    if((n.k==='vget'||n.k==='vset'||n.k==='var')&&n.varName===oldN) n.varName=newN;
+    if(n.k==='blk'&&n.refs){ for(const k in n.refs) if(n.refs[k]===oldN) n.refs[k]=newN; }
+  });
   walk(P_.main); Object.values(P_.types).forEach(t=>t.graph&&walk(t.graph));
   renderGraph(); markDirty();
 }

@@ -181,6 +181,7 @@ function portsOf(n){
   if(n.k==='const') return {ins:[], outs:[IO('', n.vtype||'num')]};
   if(n.k==='vget'){ const v=P_.vars.find(v=>v.name===n.varName); return {ins:[],outs:[IO('', v?v.type:'any')]}; }
   if(n.k==='vset'){ const v=P_.vars.find(v=>v.name===n.varName); return {ins:[IO('', v?v.type:'any')],outs:[]}; }
+  if(n.k==='var'){ const v=P_.vars.find(v=>v.name===n.varName); const ty=v?v.type:'any'; return {ins:[IO('',ty)], outs:[IO('',ty)]}; }
   if(n.k==='gin'){ const t=typeOf(n.owner); return {ins:[],outs:[IO(t&&t.ins[n.pi]?t.ins[n.pi].name:'?', t&&t.ins[n.pi]?t.ins[n.pi].type:'any')]}; }
   if(n.k==='gout'){ const t=typeOf(n.owner); return {ins:[IO(t&&t.outs[n.pi]?t.outs[n.pi].name:'?', t&&t.outs[n.pi]?t.outs[n.pi].type:'any')],outs:[]}; }
   return {ins:[],outs:[]};
@@ -190,6 +191,7 @@ function nodeTitle(n){
   if(n.k==='const') return 'CONST';
   if(n.k==='vget') return '\u21a6 '+n.varName;
   if(n.k==='vset') return n.varName+' \u21a4';
+  if(n.k==='var') return n.varName;
   if(n.k==='gin') return 'IN';
   if(n.k==='gout') return 'OUT';
 }

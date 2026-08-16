@@ -112,6 +112,11 @@ function emitGraph(graph,block,ctx){
     if(n.k==='gout'){ outsExpr[n.pi]=inExpr(graph,n,0); continue; }
     if(n.k==='vget'){ L.push(`${outVar(n,0)} = V.${pid(n.varName)}`); const s=wr(n,0,outVar(n,0)); if(s)L.push(s); continue; }
     if(n.k==='vset'){ L.push(`V.${pid(n.varName)} = ${inExpr(graph,n,0)}`); continue; }
+    if(n.k==='var'){
+      if(graph.wires.some(w=>w.t[0]===n.id&&w.t[1]===0)) L.push(`V.${pid(n.varName)} = ${inExpr(graph,n,0)}`);
+      if(graph.wires.some(w=>w.f[0]===n.id&&w.f[1]===0)){ L.push(`${outVar(n,0)} = V.${pid(n.varName)}`); const s=wr(n,0,outVar(n,0)); if(s)L.push(s); }
+      continue;
+    }
     if(n.k!=='blk') continue;
     const t=typeOf(n.type); if(!t) throw new Error('node '+n.id+' has unknown type');
     const ins=(t.ins||[]).map((p,i)=>inExpr(graph,n,i));
@@ -141,7 +146,8 @@ function emitEnsure(graph,fname){
     if(t.impl==='graph'){ L.push(`if not hasattr(self, '${pid(n.id)}'): self.${pid(n.id)} = ${cn}()`);
       L.push(`self.${pid(n.id)}.ensure()`); }
     else { const ps=(t.params||[]).map(p=>pyLit(n.params?n.params[p.name]:p.def,p.type));
-      L.push(`if not hasattr(self, '${pid(n.id)}'): self.${pid(n.id)} = ${cn}(${ps.join(', ')})`); }
+      const refArgs=(t.refs||[]).map(r=>pyLit(n.refs?n.refs[r.name]:'','str'));
+      L.push(`if not hasattr(self, '${pid(n.id)}'): self.${pid(n.id)} = ${cn}(${ps.concat(refArgs).join(', ')})`); }
   }
   return L.length?L:['pass'];
 }
@@ -182,7 +188,10 @@ function generate(){
     } else if(t.kind==='FB'){
       const cn=cname(t);
       const ps=(t.params||[]).map(p=>`${p.name}=${pyLit(p.def,p.type)}`);
-      defs.push(`try:\n    ${cn}\nexcept NameError:\n    class ${cn}:\n        def __init__(self${ps.length?', '+ps.join(', '):''}):\n${ind(t.init||'pass',12)}\n${ind((t.params||[]).map(p=>`self._${p.name} = ${p.name}`).join('\n')||'pass',12)}`);
+      const refPs=(t.refs||[]).map(r=>`ref_${pid(r.name)}=''`);
+      const allPs=ps.concat(refPs);
+      const assigns=(t.params||[]).map(p=>`self._${p.name} = ${p.name}`).concat((t.refs||[]).map(r=>`self._ref_${pid(r.name)} = ref_${pid(r.name)}`));
+      defs.push(`try:\n    ${cn}\nexcept NameError:\n    class ${cn}:\n        def __init__(self${allPs.length?', '+allPs.join(', '):''}):\n${ind(t.init||'pass',12)}\n${ind(assigns.join('\n')||'pass',12)}`);
       const pu=(t.params||[]).map(p=>`${p.name} = self._${p.name}`).join('\n');
       if(t.breaker){
         defs.push(`def _${cn}_pre(self):\n${pu?ind(pu,4)+'\n':''}${ind(t.pre||'return self.q',4)}\n${cn}.pre = _${cn}_pre`);

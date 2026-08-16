@@ -90,6 +90,11 @@ function jsRun(graph,block,path,base,args){
     if(n.k==='gout'){ outs[n.pi]=inV(n,0); continue; }
     if(n.k==='vget'){ const v=JSVARS[n.varName]; V[n.id+':0']=v; wr(n,0,v); continue; }
     if(n.k==='vset'){ JSVARS[n.varName]=inV(n,0); continue; }
+    if(n.k==='var'){
+      if(graph.wires.some(w=>w.t[0]===n.id&&w.t[1]===0)) JSVARS[n.varName]=inV(n,0);
+      if(graph.wires.some(w=>w.f[0]===n.id&&w.f[1]===0)){ const v=JSVARS[n.varName]; V[n.id+':0']=v; wr(n,0,v); }
+      continue;
+    }
     if(n.k!=='blk') continue;
     const t=typeOf(n.type); if(!t) continue;
     const ins=(t.ins||[]).map((p,i)=>inV(n,i));

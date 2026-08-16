@@ -294,13 +294,13 @@ function demoProject(){
 
   const btn=blk(g,'pin_in',40,150,{pin:0,pull_up:true,invert:true});
   const eco=blk(g,ec.id,250,150);
-  const vs =N(g,'vset',{x:470,y:150,varName:'presses'});
+  const vs =N(g,'var',{x:470,y:150,varName:'presses'});
   W_(g,btn,0,eco,0); W_(g,eco,0,vs,0);
 
   const ad=blk(g,'adc',40,260,{pin:34});
   const fl=blk(g,'ema',210,260,{alpha:0.15});
   const pc=blk(g,pct.id,400,260);
-  const vl=N(g,'vset',{x:560,y:260,varName:'level'});
+  const vl=N(g,'var',{x:560,y:260,varName:'level'});
   W_(g,ad,0,fl,0); W_(g,fl,0,pc,0); W_(g,pc,0,vl,0);
 
   const sc=blk(g,'hyst',400,360,{lo:0.35,hi:0.65});
