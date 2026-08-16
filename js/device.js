@@ -193,20 +193,22 @@ signal chain survive edits. Upstream sources stay put. Hold <b>Alt</b> to move o
 Blocks can never overlap — dropping one on top of another pushes the blocks in the way aside (minimum
 <b>one grid cell</b> clear on at least one axis). A block fed by a forward wire always sits at <b>exactly</b> the
 minimum distance from its source (two grid cells) — there is no such thing as an arbitrarily long forward wire; drag
-one further away and it snaps straight back the moment you let go. Vertical movement is otherwise free.
+one further away and it snaps straight back the moment you let go.<br>
+A block with nothing feeding it forward — the start of an island — always aligns to the <b>same leftmost column</b>;
+there's no free-floating starting position. Between islands, and between any two blocks whose order isn't already
+fixed by a wire, whichever sits <b>higher</b> runs first — dragging a block above or below another is what decides
+that order, live, as you drag.
 <br><br>
 <b>Wires and direction</b><br>
 Wires are straight orthogonal runs. The vertical shaft sits as far left as it can &mdash; one unit clear of the output
 port &mdash; and every corner is a 45&deg; cut half a unit wide by half a unit tall. So an offset connection reads as:
 half-unit stub, corner, shaft, corner, half-unit stub. When a block is in the way the router searches the grid for
 the shortest path around it, still keeping vertical runs to the left; everything re-routes when you move something.<br>
-A wire that travels <b>left&nbsp;→&nbsp;right</b> is evaluated in the <b>same scan</b>. Connecting a block normally
-never creates anything else: if you drop the connection onto a block that sits behind the source, that block (and
-everything it feeds) is snapped forward until the wire reads left-to-right.<br>
-Hold <b>Shift</b> while dropping the connection to wire it backwards on purpose: a wire that travels
-<b>right&nbsp;→&nbsp;left</b> is drawn dashed with a <span style="color:#c9a4ff">&#8634;&nbsp;z&#8315;&#185;</span> tag
-and carries the <b>previous scan's</b> value instead — that's how feedback loops close. Because an un-shifted connection
-is always forced to run forward, the same-scan graph can never contain a loop, so layout <i>is</i> execution order.
+A wire that travels <b>left&nbsp;→&nbsp;right</b> is evaluated in the <b>same scan</b>. A wire's direction is never a
+choice — it's read off the diagram exactly like everything else: connect an output to the input of a block that's
+already upstream of it, and the connection is automatically feedback — drawn dashed with a
+<span style="color:#c9a4ff">&#8634;&nbsp;z&#8315;&#185;</span> tag, carrying the <b>previous scan's</b> value — because
+that's the only thing it could mean. Anything else reads forward.
 <br><br>
 <b>Make your own blocks</b><br>
 <b>+F</b> = stateless function, <b>+FB</b> = function block with state. In the <i>Type</i> tab choose

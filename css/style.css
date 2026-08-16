@@ -80,7 +80,7 @@ label{font-size:11px;color:var(--fg2)}
 .node.k-io .hd{background:linear-gradient(#3a2a17,#2a1f12)}
 .node.k-var .hd{background:linear-gradient(#3a1f2c,#2a1720)}
 .node.k-const .hd{background:linear-gradient(#242a33,#1a1f26)}
-.node .body{position:relative}
+.node .body{position:relative;margin:-1px 0 0 -1px}  /* cancel .node's own 1px border so ports/wires land on the same grid point */
 .port{position:absolute;width:11px;height:11px;border-radius:50%;background:#0b0e13;border:2px solid var(--line2);cursor:crosshair;z-index:2}
 .port:hover,.port.tgt{border-color:var(--acc);background:var(--acc);box-shadow:0 0 8px var(--acc)}
 .port.bool{border-radius:2px}

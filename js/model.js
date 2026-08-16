@@ -174,6 +174,7 @@ function newType(kind){
 /* ---------- geometry (everything lives on the grid) --------------- */
 const GRID=20, HDR=GRID, ROW=GRID;
 const MINGAP=2*GRID;      // a downstream block sits at least two units clear of its source
+const LEFT_MARGIN=2*GRID; // every dataflow root (nothing forward-feeds it) aligns to this x — no free-floating starts
 const snap = v => Math.round(v/GRID)*GRID;
 function portsOf(n){
   if(n.k==='blk'){ const t=typeOf(n.type); if(!t) return {ins:[],outs:[]};
@@ -297,7 +298,11 @@ function compactForward(graph){
       if(wireBack(graph,w)) cap=Math.min(cap, portPos(s,'out',w.f[1]).x);       // stay left of the feedback source
       else required=Math.max(required, portPos(s,'out',w.f[1]).x+MINGAP);      // exactly MINGAP clear, never more
     }
-    if(required===-Infinity) continue;                    // no forward source — position is free, leave it
+    if(required===-Infinity){
+      if(n.k==='gin'||n.k==='gout') continue;             // graph-boundary pins keep their own placement
+      if(n.x!==LEFT_MARGIN){ n.x=LEFT_MARGIN; changed=true; }
+      continue;                                            // a dataflow root — no forward source to align to
+    }
     const nx=snap(Math.min(required,cap));
     if(nx!==n.x){ n.x=nx; changed=true; }
   }
@@ -337,6 +342,16 @@ function resolveOverlaps(graph, fixedIds, xLockedIds){
    against the settled geometry. fixedIds (optional) are blocks that must not
    themselves be displaced by the overlap pass — e.g. the block someone is
    actively dragging displaces others, not itself. */
+function hasOverlap(graph){
+  const nodes=graph.nodes;
+  for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
+    const ra=rectOf(nodes[i]), rb=rectOf(nodes[j]);
+    const xOverlap=Math.min(ra.x1,rb.x1)-Math.max(ra.x0,rb.x0);
+    const yOverlap=Math.min(ra.y1,rb.y1)-Math.max(ra.y0,rb.y0);
+    if(GRID+xOverlap>0 && GRID+yOverlap>0) return true;
+  }
+  return false;
+}
 function relayout(graph, fixedIds){
   const xLocked=new Set();
   for(const w of graph.wires) if(!wireBack(graph,w)) xLocked.add(w.t[0]);
@@ -346,6 +361,19 @@ function relayout(graph, fixedIds){
     const o=resolveOverlaps(graph, fixedIds, xLocked);
     if(c||o) any=true;
     if(!c&&!o) break;
+  }
+  /* a block sandwiched between a fixed anchor and an unmoved neighbour on the
+     other side can deadlock a purely local, pairwise push (each side wants it
+     to yield in the opposite direction). If anything is still overlapping,
+     fall back to a fully free pass — the diagram must never settle on a
+     collision, even if that means nudging the anchor's own chain too. */
+  if(hasOverlap(graph)){
+    for(let i=0;i<8;i++){
+      const c=compactForward(graph);
+      const o=resolveOverlaps(graph, null, xLocked);
+      if(!c&&!o) break;
+    }
+    any=true;
   }
   graph.wires.forEach(w=>{ w.back=wireBack(graph,w); });
   return any;
