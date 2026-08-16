@@ -175,6 +175,7 @@ function newType(kind){
 const GRID=20, HDR=GRID, ROW=GRID;
 const MINGAP=2*GRID;      // a downstream block sits at least two units clear of its source
 const LEFT_MARGIN=2*GRID; // every dataflow root (nothing forward-feeds it) aligns to this x — no free-floating starts
+const TOP_MARGIN=2*GRID;  // row 0 starts here
 const snap = v => Math.round(v/GRID)*GRID;
 function portsOf(n){
   if(n.k==='blk'){ const t=typeOf(n.type); if(!t) return {ins:[],outs:[]};
@@ -244,42 +245,39 @@ function forwardClosure(graph, seeds){
       set.add(w.t[0]); q.push(w.t[0]); } }
   return set;
 }
-/* how far the moving set may slide in x before some wire would change type */
-function dxBounds(graph, movers){
-  let lo=-Infinity, hi=Infinity;
-  for(const w of graph.wires){
-    const s=graph.nodes.find(n=>n.id===w.f[0]), d=graph.nodes.find(n=>n.id===w.t[0]);
-    if(!s||!d) continue;
-    const ms=movers.has(s.id), md=movers.has(d.id);
-    if(ms===md) continue;                                   // both move, or neither
-    const ox=portPos(s,'out',w.f[1]).x, ix=portPos(d,'in',w.t[1]).x;
-    const back=isBack(graph,w);
-    if(ms){ if(back) lo=Math.max(lo, ix-ox); else hi=Math.min(hi, ix-ox-MINGAP); }
-    else  { if(back) hi=Math.min(hi, ox-ix); else lo=Math.max(lo, ox-ix+MINGAP); }
-  }
-  return {lo:Math.min(0,lo), hi:Math.max(0,hi)};   // a drag can always start
-}
-/* --- automatic layout: no arbitrarily long wires, no overlapping blocks ---
-   Two passes, iterated to a fixpoint:
-   compactForward()  pulls every block with a forward incoming wire to the
-                      exact minimum x its sources require — never more slack
-                      than MINGAP, never less. Backward (feedback) wires are
-                      never used as a lower bound, and a block on the
-                      receiving end of a backward wire is capped so the pull
-                      can never flatten that wire into a same-scan one.
-   resolveOverlaps()  keeps every pair of blocks at least GRID apart. Blocks
-                      whose x is owned by compactForward (they have a forward
-                      incoming wire) are only ever separated along y — x stays
-                      exactly where compactForward put it. Free blocks (no
-                      forward incoming wire) can be pushed on either axis,
-                      whichever needs the smaller nudge.                    */
+/* --- layout: a pure function from graph structure to (x,y) ---------------
+   No position is ever "corrected" — every render recomputes every block's x
+   and y from scratch, from two things only:
+
+   x  dependency depth along forward wires: a block sits exactly MINGAP right
+      of the rightmost thing that forward-feeds it. Nothing with no forward
+      source floats free — it pins to LEFT_MARGIN. Single deterministic pass
+      in topological order; nothing to iterate or converge.
+
+   y  a row number driven purely by graph.nodes' array order — the only place
+      "where things are relative to each other" is recorded at all. A block
+      chained by exactly one forward wire to a single consumer keeps its
+      source's row (a straight run reads as one line); a fan-out gives every
+      further branch, and every root with nothing feeding it, the next free
+      row, in the order they appear in the array. Reordering that array —
+      what a drag commits — is the only thing that changes a row. Cutting a
+      wire elsewhere never moves a row that wasn't touched: at worst later
+      rows shift down to make space for a block that just became its own
+      root, exactly the way inserting a line shifts the ones below it. An
+      island's own position is never touched by disconnecting it from
+      another island — nothing about the array changes when a wire is cut.
+
+   Two blocks can only ever share a row by being on the same forward chain,
+   and x strictly increases along a chain, so row-sharing can never overlap —
+   there is no separate collision pass because there is nothing left for one
+   to catch. */
 function topoForwardOrder(graph){
   const ids=graph.nodes.map(n=>n.id);
   const indeg={}, adj={};
   ids.forEach(id=>{indeg[id]=0; adj[id]=[];});
   for(const w of graph.wires){
     if(!(w.f[0] in adj)||!(w.t[0] in indeg)) continue;
-    if(wireBack(graph,w)) continue;
+    if(isBack(graph,w)) continue;
     adj[w.f[0]].push(w.t[0]); indeg[w.t[0]]++;
   }
   const q=ids.filter(id=>indeg[id]===0), order=[];
@@ -287,96 +285,67 @@ function topoForwardOrder(graph){
   if(order.length<ids.length) for(const id of ids) if(!order.includes(id)) order.push(id);
   return order;
 }
-function compactForward(graph){
-  let changed=false;
+function layoutX(graph){
   for(const id of topoForwardOrder(graph)){
     const n=graph.nodes.find(x=>x.id===id); if(!n) continue;
     let required=-Infinity, cap=Infinity;
     for(const w of graph.wires){
       if(w.t[0]!==id) continue;
       const s=graph.nodes.find(x=>x.id===w.f[0]); if(!s) continue;
-      if(wireBack(graph,w)) cap=Math.min(cap, portPos(s,'out',w.f[1]).x);       // stay left of the feedback source
+      if(isBack(graph,w)) cap=Math.min(cap, portPos(s,'out',w.f[1]).x);         // stay left of the feedback source
       else required=Math.max(required, portPos(s,'out',w.f[1]).x+MINGAP);      // exactly MINGAP clear, never more
     }
     if(required===-Infinity){
       if(n.k==='gin'||n.k==='gout') continue;             // graph-boundary pins keep their own placement
-      if(n.x!==LEFT_MARGIN){ n.x=LEFT_MARGIN; changed=true; }
-      continue;                                            // a dataflow root — no forward source to align to
+      n.x=LEFT_MARGIN;                                     // a dataflow root — pinned, not free
+      continue;
     }
-    const nx=snap(Math.min(required,cap));
-    if(nx!==n.x){ n.x=nx; changed=true; }
+    n.x=snap(Math.min(required,cap));
   }
-  return changed;
 }
-function rectOf(n){ const s=nodeSize(n); return {x0:n.x,y0:n.y,x1:n.x+s.w,y1:n.y+s.h}; }
-function resolveOverlaps(graph, fixedIds, xLockedIds){
-  const fixed=new Set(fixedIds||[]), xLocked=xLockedIds||new Set();
-  const nodes=graph.nodes;
-  let changed=false;
-  for(let pass=0; pass<40; pass++){
-    let movedThisPass=false;
-    for(let i=0;i<nodes.length;i++) for(let j=0;j<nodes.length;j++){
-      if(i===j) continue;
-      const a=nodes[i], b=nodes[j];
-      if(fixed.has(b.id)) continue;
-      const ra=rectOf(a), rb=rectOf(b);
-      const xOverlap=Math.min(ra.x1,rb.x1)-Math.max(ra.x0,rb.x0);
-      const yOverlap=Math.min(ra.y1,rb.y1)-Math.max(ra.y0,rb.y0);
-      const penX=GRID+xOverlap, penY=GRID+yOverlap;
-      if(penX<=0||penY<=0) continue;                       // already at least GRID clear on one axis
-      const canX=!xLocked.has(b.id);
-      if(canX&&penX<=penY){
-        const dir=((rb.x0+rb.x1)>=(ra.x0+ra.x1))?1:-1;
-        b.x=snap(b.x+dir*penX);
-      } else {
-        const dir=((rb.y0+rb.y1)>=(ra.y0+ra.y1))?1:-1;
-        b.y=snap(b.y+dir*penY);
-      }
-      movedThisPass=true; changed=true;
+/* every node's row: 0,1,2,... in the order graph.nodes drives them into being */
+function layoutRows(graph){
+  const rowOf={};
+  let nextRow=0;
+  const arrayIndex={}; graph.nodes.forEach((n,i)=>arrayIndex[n.id]=i);
+  const forwardOutsOf=id=>{
+    const seen=new Set(), outs=[];
+    for(const w of graph.wires){
+      if(w.f[0]!==id||isBack(graph,w)||seen.has(w.t[0])||!(w.t[0] in arrayIndex)) continue;
+      seen.add(w.t[0]); outs.push(w.t[0]);
     }
-    if(!movedThisPass) break;
-  }
-  return changed;
+    outs.sort((a,b)=>arrayIndex[a]-arrayIndex[b]);          // deterministic: earlier in the array = first branch
+    return outs;
+  };
+  const place=(id,row)=>{
+    if(rowOf[id]!==undefined) return;
+    rowOf[id]=row;
+    forwardOutsOf(id).forEach((cid,i)=>{ if(i===0) place(cid,row); else place(cid,++nextRow); });
+  };
+  const hasForwardIn=id=>graph.wires.some(w=>w.t[0]===id && !isBack(graph,w) && (w.f[0] in arrayIndex));
+  for(const n of graph.nodes){ if(rowOf[n.id]!==undefined||hasForwardIn(n.id)) continue; place(n.id,nextRow); nextRow++; }
+  for(const n of graph.nodes){ if(rowOf[n.id]===undefined){ place(n.id,nextRow); nextRow++; } }  // multi-input / fed-from-later
+  return rowOf;
 }
-/* run both passes to a fixpoint, then refresh every wire's forward/back tag
-   against the settled geometry. fixedIds (optional) are blocks that must not
-   themselves be displaced by the overlap pass — e.g. the block someone is
-   actively dragging displaces others, not itself. */
-function hasOverlap(graph){
-  const nodes=graph.nodes;
-  for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
-    const ra=rectOf(nodes[i]), rb=rectOf(nodes[j]);
-    const xOverlap=Math.min(ra.x1,rb.x1)-Math.max(ra.x0,rb.x0);
-    const yOverlap=Math.min(ra.y1,rb.y1)-Math.max(ra.y0,rb.y0);
-    if(GRID+xOverlap>0 && GRID+yOverlap>0) return true;
-  }
-  return false;
+function layoutY(graph){
+  const rowOf=layoutRows(graph);
+  const rowH={};
+  for(const n of graph.nodes){ const r=rowOf[n.id]; rowH[r]=Math.max(rowH[r]||0, nodeSize(n).h); }
+  const rowY={}; let y=TOP_MARGIN;
+  const maxRow=Object.keys(rowH).reduce((m,r)=>Math.max(m,+r),-1);
+  for(let r=0;r<=maxRow;r++){ rowY[r]=y; y+=(rowH[r]||GRID)+GRID; }
+  for(const n of graph.nodes) n.y=rowY[rowOf[n.id]];
 }
-function relayout(graph, fixedIds){
-  const xLocked=new Set();
-  for(const w of graph.wires) if(!wireBack(graph,w)) xLocked.add(w.t[0]);
-  let any=false;
-  for(let i=0;i<8;i++){
-    const c=compactForward(graph);
-    const o=resolveOverlaps(graph, fixedIds, xLocked);
-    if(c||o) any=true;
-    if(!c&&!o) break;
-  }
-  /* a block sandwiched between a fixed anchor and an unmoved neighbour on the
-     other side can deadlock a purely local, pairwise push (each side wants it
-     to yield in the opposite direction). If anything is still overlapping,
-     fall back to a fully free pass — the diagram must never settle on a
-     collision, even if that means nudging the anchor's own chain too. */
-  if(hasOverlap(graph)){
-    for(let i=0;i<8;i++){
-      const c=compactForward(graph);
-      const o=resolveOverlaps(graph, null, xLocked);
-      if(!c&&!o) break;
-    }
-    any=true;
-  }
-  graph.wires.forEach(w=>{ w.back=wireBack(graph,w); });
-  return any;
+/* w.back is a structural fact, decided once when the wire is made (see
+   connect() in editor.js) and stored — never re-derived from geometry here.
+   Re-deriving it from the x/y this very function is about to compute would
+   be circular: a brand-new wire between two still-unpositioned blocks has no
+   geometry yet to read a direction off. wireBack() stays available for the
+   one place that legitimately needs a geometric guess: bootstrapping .back
+   for a project file saved before it existed (see tagWires). */
+function computeLayout(graph){
+  layoutX(graph);
+  layoutY(graph);
 }
 function snapNode(n){ n.x=snap(n.x); n.y=snap(n.y); return n; }
 function snapGraph(g){ (g.nodes||[]).forEach(snapNode); }

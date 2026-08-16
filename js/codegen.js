@@ -84,14 +84,16 @@ function emitGraph(graph,block,ctx){
     if(!d||!s||isBreaker(d)||BACKW.has(w.id)) continue;   // back wires are not dependencies
     adj[s.id].push(d.id); deg[d.id]++;
   }
-  /* among nodes whose dependencies are all satisfied, the one positioned
-     higher (smaller y, then smaller x) executes next — that is what makes
-     the order of unconnected islands, and of parallel branches, deterministic
-     and driven by the diagram rather than incidental array/insertion order */
-  const ready=nodes.filter(n=>deg[n.id]===0).map(n=>n.id); const order=[];
-  const posOf=id=>{ const n=nodes.find(x=>x.id===id); return n?{y:n.y,x:n.x}:{y:0,x:0}; };
+  /* among nodes whose dependencies are all satisfied, the one that appears
+     first in graph.nodes executes next — that array order is the only record
+     of sequence for anything not already pinned by a wire (unconnected
+     islands, parallel branches), so this is what makes execution order match
+     the diagram instead of incidental object-key iteration */
+  const arrayIndex={}; nodes.forEach((n,i)=>arrayIndex[n.id]=i);
+  const ready=nodes.filter(n=>deg[n.id]===0).map(n=>n.id);
+  const order=[];
   while(ready.length){
-    ready.sort((a,b)=>{ const pa=posOf(a),pb=posOf(b); return (pa.y-pb.y)||(pa.x-pb.x)||(a<b?-1:1); });
+    ready.sort((a,b)=>arrayIndex[a]-arrayIndex[b]);
     const id=ready.shift(); order.push(id);
     for(const m of adj[id]) if(--deg[m]===0) ready.push(m);
   }

@@ -80,21 +80,32 @@ function startPaletteDrag(e,kind,t){
     ghostDrag=null; };
   mv(e); document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
 }
+/* where in graph.nodes' order a row at cursorY belongs: before the first
+   node (by current layout) whose row sits below the cursor. graph.nodes'
+   order is the only place sequence is recorded, so this is the one place
+   that translates a screen position into an edit to that order. */
+function rowInsertIndex(nodes,cursorY){
+  for(let i=0;i<nodes.length;i++){
+    const cy=nodes[i].y+nodeSize(nodes[i]).h/2;
+    if(cursorY<cy) return i;
+  }
+  return nodes.length;
+}
 function addNode(kind,t,x,y){
-  const g=G(); const n={id:uid('n'),k:kind,x:snap(x),y:snap(y)};
+  const g=G(); const n={id:uid('n'),k:kind};
   if(kind==='blk'){ n.type=t.id; n.params={}; (t.params||[]).forEach(p=>n.params[p.name]=p.def); }
   if(kind==='const'){ n.value=1; n.vtype='num'; }
   if(kind==='vget'||kind==='vset'||kind==='var'){ if(!P_.vars.length){ toast('Create a variable first (Vars tab)'); return; } n.varName=P_.vars[0].name; }
-  g.nodes.push(n); selectOnly(n.id); _relayoutAnchors=[n.id]; renderGraph(); markDirty(); return n;
+  computeLayout(g);
+  g.nodes.splice(rowInsertIndex(g.nodes,y),0,n);
+  selectOnly(n.id); renderGraph(); markDirty(); return n;
 }
 
 /* ---------- graph render ----------------------------------------- */
 function syncIONodes(){ const t=curType(); if(t) syncIOFor(t); }
-let _relayoutAnchors=null;             // set by a caller just before renderGraph() to protect those blocks from being displaced by the overlap pass
 function renderGraph(){
   syncIONodes();
-  if(relayout(G(), _relayoutAnchors)) toast('blocks repositioned — no overlaps, no arbitrarily long wires');
-  _relayoutAnchors=null;
+  computeLayout(G());
   nodesL.innerHTML=''; wireg.innerHTML='';
   const g=G();
   for(const n of g.nodes) nodesL.append(buildNode(n));
@@ -262,12 +273,12 @@ function delSelection(){
   g.nodes.filter(n=>n.auto).forEach(n=>collapseAutoMerge(g,n.id));
   selectOnly(null); renderGraph(); markDirty();
 }
-/* A wire's direction is never a choice the user makes — it's derived from
-   where the two blocks already sit, same as every other geometric fact about
-   the diagram. Output -> input where the target is currently upstream of the
-   source reads back-to-front, so it becomes feedback (right-to-left, z⁻¹)
-   automatically; otherwise it's a same-scan forward wire. There is no way to
-   force one or the other independent of layout.
+/* A wire's direction is never a choice the user makes — it's derived from the
+   graph itself, same as everything else about the diagram. Output -> input
+   where the target already forward-feeds the source (directly or through a
+   chain) reads back-to-front — the only thing that connection could mean is
+   feedback (right-to-left, z⁻¹) — so it becomes that automatically; otherwise
+   it's a same-scan forward wire. There is no way to force one or the other.
    Connecting a second wire onto an input that's already fed doesn't replace the
    first one: a small merge block (OR for booleans, ADD for numbers) is spliced
    in automatically, so both signals still reach the input. A third wire chains
@@ -284,12 +295,13 @@ function connect(fn,fi,tn,ti){
     const portType=(portsOf(dst).ins[ti]||{}).type;
     const mergeKind=mergeKindFor(portType);
     if(!mergeKind){ toast('this input already has a connection — only boolean (→OR) or numeric (→ADD) inputs accept more than one wire'); return; }
-    const exFn=existing.f[0], exFi=existing.f[1], exSrc=nodeById(exFn);
+    const exFn=existing.f[0], exFi=existing.f[1];
     const mt=typeOf(mergeKind);
-    const m={id:uid('n'),k:'blk',type:mergeKind,auto:mergeKind,x:snap(exSrc.x),y:snap(exSrc.y+nodeSize(exSrc).h+GRID),params:{}};
+    const m={id:uid('n'),k:'blk',type:mergeKind,auto:mergeKind,params:{}};
     (mt.params||[]).forEach(p=>m.params[p.name]=p.def);
     g.wires=g.wires.filter(w=>w!==existing);
-    g.nodes.push(m);
+    const afterSrc=g.nodes.findIndex(n=>n.id===exFn);
+    g.nodes.splice(afterSrc+1,0,m);
     _wireUp(g,exFn,exFi,m.id,0);
     _wireUp(g,fn,fi,m.id,1);
     _wireUp(g,m.id,0,tn,ti);
@@ -304,7 +316,14 @@ function _wireUp(g,fn,fi,tn,ti){
   if(!src||!dst) return;
   g.wires=g.wires.filter(w=>!(w.t[0]===tn&&w.t[1]===ti));   // one source per input
   const w={id:uid('w'),f:[fn,fi],t:[tn,ti]};
-  w.back=wireBack(g,w);
+  /* feedback is exactly the case where treating this wire as forward would
+     close a same-scan loop — i.e. the source is already reachable, via
+     existing forward wires, from the block this wire is about to feed. That
+     is the only thing "the target is upstream" can mean now that position is
+     computed from the wires rather than read off it, and unlike a geometric
+     snapshot it has no chicken-and-egg problem for two brand-new blocks that
+     don't have a meaningful position yet. */
+  w.back=forwardClosure(g,[tn]).has(fn);
   g.wires.push(w);
 }
 /* an auto-merge block left with one or zero inputs (its other source got
@@ -320,7 +339,7 @@ function collapseAutoMerge(g,nodeId){
   g.wires=g.wires.filter(w=>w.t[0]!==nodeId&&w.f[0]!==nodeId);
   if(inWires.length===1){
     const src=inWires[0];
-    for(const ow of outWires) _wireUp(g,src.f[0],src.f[1],ow.t[0],ow.t[1],false);
+    for(const ow of outWires) _wireUp(g,src.f[0],src.f[1],ow.t[0],ow.t[1]);
   }
 }
 
@@ -335,12 +354,8 @@ cwrap.addEventListener('mousedown',e=>{
     if(!sel.nodes.has(n.id)) selectOnly(n.id);
     const g=G();
     const movers = e.altKey ? new Set(sel.nodes) : forwardClosure(g,[...sel.nodes]);
-    const start=[...movers].map(id=>{const q=nodeById(id); return {n:q,x:q.x,y:q.y};});
-    const bounds=dxBounds(g,movers);
-    const xLocked=new Set(); for(const w of g.wires) if(!wireBack(g,w)) xLocked.add(w.t[0]);
     movers.forEach(id=>{const d=nodesL.querySelector(`.node[data-id="${id}"]`); if(d)d.classList.add('moving');});
-    const p0=toGraph(e.clientX,e.clientY);
-    drag={type:'node',start,p0,bounds,xLocked,moved:false,clamped:false}; e.preventDefault(); return; }
+    drag={type:'node',movers,moved:false}; e.preventDefault(); return; }
   selectOnly(null);
   drag={type:'pan',x0:e.clientX,y0:e.clientY,cx:cam.x,cy:cam.y};
 });
@@ -354,21 +369,21 @@ cwrap.addEventListener('dblclick',e=>{
 document.addEventListener('mousemove',e=>{
   if(!drag) return;
   if(drag.type==='pan'){ cam.x=drag.cx+(e.clientX-drag.x0); cam.y=drag.cy+(e.clientY-drag.y0); applyCam(); }
-  else if(drag.type==='node'){ const p=toGraph(e.clientX,e.clientY);
-    let dx=snap(p.x-drag.p0.x); const dy=snap(p.y-drag.p0.y); drag.moved=true;
-    const cl=Math.max(drag.bounds.lo, Math.min(drag.bounds.hi, dx));
-    if(cl!==dx){ if(!drag.clamped){ drag.clamped=true;
-        toast('held by a wire — a block cannot cross a block it exchanges signals with (Alt-drag to move it alone)'); } }
-    else drag.clamped=false;
-    dx=cl;
-    for(const s of drag.start){ s.n.x=s.x+dx; s.n.y=s.y+dy; }
-    /* reorder is live, not just corrected on drop: push whatever's in the way
-       out of the mover's path as the mouse moves, so the new order is visible
-       before you let go, same as dragging an item in a sortable list. */
+  else if(drag.type==='node'){
+    drag.moved=true;
+    /* dragging is reordering, not placement: find the row the cursor is
+       nearest to among everything NOT being dragged, splice the movers to
+       that point in graph.nodes' order — the only record of sequence there
+       is — and lay the whole graph out fresh. x is never touched by a drag;
+       it is always exactly whatever the wires require. */
+    const cursorY=toGraph(e.clientX,e.clientY).y;
     const g=G();
-    const movedIds=drag.start.map(s=>s.n.id);
-    resolveOverlaps(g, movedIds, drag.xLocked);
-    if(hasOverlap(g)) resolveOverlaps(g, null, drag.xLocked);   // sandwiched-deadlock fallback, see relayout()
+    const others=g.nodes.filter(n=>!drag.movers.has(n.id));
+    computeLayout({nodes:others,wires:g.wires});
+    const idx=rowInsertIndex(others,cursorY);
+    const moving=g.nodes.filter(n=>drag.movers.has(n.id));
+    g.nodes=[...others.slice(0,idx), ...moving, ...others.slice(idx)];
+    computeLayout(g);
     for(const n of g.nodes){ const d=nodesL.querySelector(`.node[data-id="${n.id}"]`); if(d){d.style.left=n.x+'px'; d.style.top=n.y+'px';} }
     updateWires(true); }
   else if(drag.type==='wire'){ const p=toGraph(e.clientX,e.clientY);
@@ -390,7 +405,7 @@ document.addEventListener('mouseup',e=>{
     $$('.port.tgt').forEach(x=>x.classList.remove('tgt'));
   }
   if(drag.type==='node'){ $$('.node.moving').forEach(d=>d.classList.remove('moving'));
-    if(drag.moved){ _relayoutAnchors=drag.start.map(s=>s.n.id); renderGraph(); markDirty(); } }
+    if(drag.moved){ renderGraph(); markDirty(); } }
   drag=null;
 });
 function startWireDrag(port,e){

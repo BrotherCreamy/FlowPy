@@ -64,11 +64,11 @@ function topoOrder(graph,back){
   const deg={},adj={}; graph.nodes.forEach(n=>{deg[n.id]=0;adj[n.id]=[];});
   for(const w of graph.wires){ const d=graph.nodes.find(n=>n.id===w.t[0]),s=graph.nodes.find(n=>n.id===w.f[0]);
     if(!d||!s||isBreaker(d)||(back&&back.has(w.id)))continue; adj[s.id].push(d.id); deg[d.id]++; }
-  /* ties (independent islands, parallel branches) resolve by position: higher (smaller y, then x) runs first */
+  /* ties (independent islands, parallel branches) resolve by graph.nodes' array order — the only record of sequence */
+  const arrayIndex={}; graph.nodes.forEach((n,i)=>arrayIndex[n.id]=i);
   const ready=graph.nodes.filter(n=>deg[n.id]===0).map(n=>n.id), o=[];
-  const posOf=id=>{ const n=graph.nodes.find(x=>x.id===id); return n?{y:n.y,x:n.x}:{y:0,x:0}; };
   while(ready.length){
-    ready.sort((a,b)=>{ const pa=posOf(a),pb=posOf(b); return (pa.y-pb.y)||(pa.x-pb.x)||(a<b?-1:1); });
+    ready.sort((a,b)=>arrayIndex[a]-arrayIndex[b]);
     const id=ready.shift(); o.push(id);
     for(const m of adj[id]) if(--deg[m]===0) ready.push(m);
   }

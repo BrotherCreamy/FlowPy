@@ -184,20 +184,22 @@ const HELP = `<h3>FlowPy quick start</h3>
 <b>Build</b><br>
 Drag blocks from the left onto the canvas. Everything snaps to the 20&nbsp;px grid — block positions, block sizes and
 every port — so wires always run along grid lines. Drag from an <i>output</i> port to an <i>input</i> port to wire them
-(drag off an input to detach). Square ports are booleans, round ports are numbers. Double&#8209;click a block to edit
-its type. <b>Del</b> removes the selection, wheel zooms, drag the background to pan.
+(drag off an input to detach). Square ports are booleans, round ports are numbers. Click a block's type name to rename
+it in place — type an existing type's name to switch to it, or a new name to spin up a fresh type. Double&#8209;click a
+block to open its full type editor. <b>Del</b> removes the selection, wheel zooms, drag the background to pan.<br>
+Wiring a second signal onto an input that's already fed doesn't replace the connection — a small <b>OR</b> (boolean) or
+<b>ADD</b> (numeric) block is spliced in automatically so both reach it, chaining further for a third source and beyond,
+and collapsing back to a plain wire the moment you disconnect down to one.
 <br><br>
-<b>Moving blocks</b><br>
-Drag a block and everything it feeds moves with it, keeping the same &#916;x/&#916;y — so spacing and the shape of a
-signal chain survive edits. Upstream sources stay put. Hold <b>Alt</b> to move one block on its own.<br>
-Blocks can never overlap — dropping one on top of another pushes the blocks in the way aside (minimum
-<b>one grid cell</b> clear on at least one axis). A block fed by a forward wire always sits at <b>exactly</b> the
-minimum distance from its source (two grid cells) — there is no such thing as an arbitrarily long forward wire; drag
-one further away and it snaps straight back the moment you let go.<br>
-A block with nothing feeding it forward — the start of an island — always aligns to the <b>same leftmost column</b>;
-there's no free-floating starting position. Between islands, and between any two blocks whose order isn't already
-fixed by a wire, whichever sits <b>higher</b> runs first — dragging a block above or below another is what decides
-that order, live, as you drag.
+<b>A block's position is computed, never stored</b><br>
+There is no x/y saved anywhere — every render lays the whole diagram out fresh from two things only: which block feeds
+which (its column), and the order blocks appear in the underlying model (its row). A block fed by a forward wire sits
+at <b>exactly</b> the minimum distance from its source — there's no such thing as an arbitrarily long forward wire. A
+block with nothing feeding it forward — the start of an island — always aligns to the same leftmost column.<br>
+Dragging is therefore <i>reordering</i>, not placement: grab a block and everything it feeds moves with it as one unit
+(hold <b>Alt</b> to move just the one block); as you drag it past another block or island, they visibly swap places,
+live, before you let go — release to commit. Disconnecting a block from its island never moves the island: cutting a
+wire doesn't touch that order, so nothing shifts except the piece that just became free, which takes the next open row.
 <br><br>
 <b>Wires and direction</b><br>
 Wires are straight orthogonal runs. The vertical shaft sits as far left as it can &mdash; one unit clear of the output
@@ -214,10 +216,19 @@ that's the only thing it could mean. Anything else reads forward.
 <b>+F</b> = stateless function, <b>+FB</b> = function block with state. In the <i>Type</i> tab choose
 <i>Python source</i> and write any MicroPython you like (F = one function body, FB = <code>__init__</code> + <code>step</code>),
 or choose <i>Flow diagram</i> and wire the implementation up from other blocks. Parameters become constructor arguments
-you can set per instance.
+you can set per instance. An FB type can also declare named <b>variable references</b> in the Type tab — bind one to a
+variable per instance in the Inspector, and the block's own code reads or writes it via
+<code>getattr</code>/<code>setattr(V, self._ref_&lt;name&gt;)</code> whenever and however it wants, instead of a value
+copied in and out once every scan.
 <br><br>
 <b>DELAY z&#8315;&#185; block</b><br>
 Still available when you want an explicit one-scan delay on a wire that runs forwards.
+<br><br>
+<b>Variables</b><br>
+A variable is a plain box with just its name — no ports shown until you hover the block, or permanently once
+something's actually wired to it, so an unused connection point never sits there implying a use that isn't happening.
+Hover the left edge to wire a value in, the right edge to read it out. Manage variables and their initial values in
+the <i>Vars</i> tab.
 <br><br>
 <b>Run it</b><br>
 <b>Simulate</b> executes the design in the browser — the <i>Python</i> engine runs the exact generated MicroPython under
