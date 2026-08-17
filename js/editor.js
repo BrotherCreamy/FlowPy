@@ -81,35 +81,77 @@ function startPaletteDrag(e,kind,t){
   mv(e); document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
 }
 /* where in graph.nodes' order a row at cursorY belongs: before the first
-   node (by current layout) whose row sits below the cursor. graph.nodes'
-   order is the only place sequence is recorded, so this is the one place
-   that translates a screen position into an edit to that order. */
+   node whose own span the cursor has reached at all — touching any part of
+   it, top edge included, means "swap with this one"; it doesn't have to be
+   dragged past that node's midpoint. graph.nodes' order is the only place
+   sequence is recorded, so this is the one place that translates a screen
+   position into an edit to that order. */
 function rowInsertIndex(nodes,cursorY){
   for(let i=0;i<nodes.length;i++){
-    const cy=nodes[i].y+nodeSize(nodes[i]).h/2;
-    if(cursorY<cy) return i;
+    const bottom=nodes[i].y+nodeSize(nodes[i]).h;
+    if(cursorY<bottom) return i;
   }
   return nodes.length;
+}
+/* comparison units for the touch test below: each scope node on its own
+   (used for reordering branches within one tree — siblings are individual
+   nodes), or every scope node grouped by whichever tree it belongs to (used
+   for a whole-tree swap — touching any row of a multi-row tree has to mean
+   the whole tree, not just whichever single node happens to occupy that
+   row). Every unit carries the original (pre-drag) span it occupies and the
+   earliest original array position of anything in it. */
+function unitsSingleton(scopeIds,originalIds,originalPos){
+  return scopeIds.map(id=>({ids:[id],hi:originalPos[id].y+nodeSize(nodeById(id)).h,firstIdx:originalIds.indexOf(id)}));
+}
+function unitsByTree(g,scopeIds,originalIds,originalPos){
+  const scopeSet=new Set(scopeIds), seen=new Set(), units=[];
+  for(const id of scopeIds){
+    if(seen.has(id)) continue;
+    const ids=[...treeOf(g,[id])].filter(x=>scopeSet.has(x));
+    ids.forEach(x=>seen.add(x));
+    let hi=-Infinity, firstIdx=Infinity;
+    for(const x of ids){ hi=Math.max(hi,originalPos[x].y+nodeSize(nodeById(x)).h); firstIdx=Math.min(firstIdx,originalIds.indexOf(x)); }
+    units.push({ids,hi,firstIdx});
+  }
+  return units;
+}
+/* Where to splice the movers into restIds so that touching a unit's span AT
+   ALL — its top edge is enough, never mind its midpoint — swaps places with
+   it: land after it if the movers started out ahead of it (dragged down onto
+   it), before it if they started out behind (dragged up onto it). Touching
+   nothing (cursor already past every unit) means "send it to the far end". */
+function spliceIndexForTouch(units,cursorY,moverFirstIdx,restIds){
+  const target=units.find(u=>cursorY<u.hi);
+  if(!target) return restIds.length;
+  if(moverFirstIdx<target.firstIdx){
+    const lastId=target.ids.reduce((a,b)=>restIds.indexOf(a)>restIds.indexOf(b)?a:b);
+    return restIds.indexOf(lastId)+1;
+  }
+  const firstId=target.ids.reduce((a,b)=>restIds.indexOf(a)<restIds.indexOf(b)?a:b);
+  return restIds.indexOf(firstId);
 }
 /* Build the whole reordering preview from nothing but the drag's fixed
    original snapshot (taken once, at mousedown) and the live cursor position
    — never from whatever a previous mousemove left behind. That's what makes
    it one-directional: original state + grabbed leaf + mouse position is the
    entire input, so holding the mouse still always recomputes the same
-   answer. Reading back a mutated live graph instead (the previous version of
+   answer. Reading back a mutated live graph instead (an earlier version of
    this) let the tree's own just-moved position feed into the next frame's
    "am I still inside my own tree" check, which could flip the answer and
    flip back — a feedback loop the user could see as flicker. */
 function dragPreview(g,drag,cursorY){
   const {alt,myTree,branchMovers,altMovers,originalIds,originalPos,band}=drag;
   const byId={}; g.nodes.forEach(n=>{byId[n.id]=n;});
-  let movers,scopeIds;
-  if(alt){ movers=altMovers; scopeIds=originalIds.filter(id=>!movers.has(id)); }
+  let movers,byTree;
+  if(alt){ movers=altMovers; byTree=false; }
   else{
     const crossing=cursorY<band.lo || cursorY>band.hi;
-    if(crossing){ movers=myTree; scopeIds=originalIds.filter(id=>!movers.has(id)); }
-    else{ movers=branchMovers; scopeIds=originalIds.filter(id=>myTree.has(id)&&!movers.has(id)); }
+    if(crossing){ movers=myTree; byTree=true; }
+    else{ movers=branchMovers; byTree=false; }
   }
+  const scopeIds = byTree||alt
+    ? originalIds.filter(id=>!movers.has(id))
+    : originalIds.filter(id=>myTree.has(id)&&!movers.has(id));
   /* nothing in scope means there's no sibling to reorder the grabbed branch
      against — most commonly, grabbing a tree's own root, whose forward
      closure IS the tree, leaving no "rest of the tree" to compare with.
@@ -117,13 +159,11 @@ function dragPreview(g,drag,cursorY){
      the end", which would move the whole tree for any movement at all,
      however small, well before the cursor ever left its own tree's span. */
   if(scopeIds.length===0){ g.nodes=originalIds.map(id=>byId[id]); computeLayout(g); return movers; }
-  const scopeProxies=scopeIds.map(id=>Object.assign({},nodeById(id),{y:originalPos[id].y}));
-  const idx=rowInsertIndex(scopeProxies,cursorY);
-  const movingIds=originalIds.filter(id=>movers.has(id));
+  const units=byTree ? unitsByTree(g,scopeIds,originalIds,originalPos) : unitsSingleton(scopeIds,originalIds,originalPos);
+  const moverFirstIdx=Math.min(...originalIds.map((id,i)=>movers.has(id)?i:Infinity));
   const restIds=originalIds.filter(id=>!movers.has(id));
-  let gi;
-  if(idx<scopeIds.length) gi=restIds.indexOf(scopeIds[idx]);
-  else gi=scopeIds.length ? restIds.indexOf(scopeIds[scopeIds.length-1])+1 : restIds.length;
+  const gi=spliceIndexForTouch(units,cursorY,moverFirstIdx,restIds);
+  const movingIds=originalIds.filter(id=>movers.has(id));
   const newOrder=[...restIds.slice(0,gi), ...movingIds, ...restIds.slice(gi)];
   g.nodes=newOrder.map(id=>byId[id]);
   computeLayout(g);
