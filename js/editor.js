@@ -301,13 +301,13 @@ function buildWire(w){
 }
 /* a plain click on a wire selects it, same as before; moving the mouse
    before release instead starts a brand-new connection from that wire's
-   true source — anywhere along the wire counts, not just the output port —
-   because with the wiretap junction (see _wireUp) a boolean wire's value is
-   just as available mid-run as at its endpoints, and this is how the user
-   taps a second connection off it. Sets the shared `drag` state and then
-   gets out of the way: the existing global mousemove/mouseup listeners
-   already know how to drive drag.type==='wire' from here, so the very next
-   real mousemove renders the temp path — a one-frame delay, imperceptible. */
+   true source — anywhere along the wire counts, not just the output port,
+   since a wire is a value branching out to however many inputs want it, and
+   this is how the user taps a further connection off it. Sets the shared
+   `drag` state and then gets out of the way: the existing global mousemove/
+   mouseup listeners already know how to drive drag.type==='wire' from here,
+   so the very next real mousemove renders the temp path — a one-frame
+   delay, imperceptible. */
 function startWireTapDrag(wireId,e){
   const x0=e.clientX, y0=e.clientY;
   let armed=true;
@@ -417,20 +417,16 @@ function delSelection(){
    feedback (right-to-left, z⁻¹) — so it becomes that automatically; otherwise
    it's a same-scan forward wire. There is no way to force one or the other.
 
-   Connections are not 1:1 — a wire is its own hidden node the moment it's
-   anything other than one output feeding one input:
-     - a boolean input fed by more than one output gets a hidden OR (netor),
-       chained pairwise for 3+ sources exactly like a numeric input fed by
-       more than one output gets a hidden ADD (unchanged, still the only
-       non-boolean case that merges multiple *sources*);
-     - a boolean OR numeric output feeding more than one input gets a hidden
-       tap (wiretap / wiretap_num) spliced in right after it, chained for
-       3+ consumers — each tap is a fixed 1-in-2-out passthrough (y, y2), so
-       every consumer lands on its own real port instead of sharing a pixel
-       with any other wire's start, and the diagram's ordinary grid-spaced
-       port layout is what actually keeps them apart, not a rendering trick. */
+   Connections are not 1:1, but only fan-IN (an input fed by more than one
+   output) is a node's problem: combining two different values into one
+   always takes a real computation, so a boolean input fed by 2+ outputs
+   gets a hidden OR (netor), and a numeric input fed by 2+ outputs gets a
+   hidden ADD — chained pairwise for 3+ sources. Fan-OUT (an output feeding
+   more than one input) needs no node at all: every consumer wants the exact
+   same value, which is just a wire branching, same as a real wire splitting
+   at a junction — see the router's fan-out trimming in js/router.js for how
+   that's drawn without duplicating or overlapping the shared run. */
 function mergeKindFor(portType){ return portType==='bool'?'netor' : portType==='num'?'add' : null; }
-function tapKindFor(portType){ return portType==='bool'?'wiretap' : portType==='num'?'wiretap_num' : null; }
 function connect(fn,fi,tn,ti){
   const g=G();
   if(fn===tn) return;
@@ -459,41 +455,7 @@ function connect(fn,fi,tn,ti){
   renderGraph(); markDirty();
 }
 function _wireUp(g,fn,fi,tn,ti){
-  const src=nodeById(fn);
-  if(!src) return;
-  const srcType=(portsOf(src).outs[fi]||{}).type;
-  const tapKind=tapKindFor(srcType);
-  if(tapKind){ attachConsumer(g,fn,fi,tn,ti,tapKind); return; }
   _wireUpRaw(g,fn,fi,tn,ti);
-}
-/* make fn,fi (logically) also feed tn,ti, growing a tap chain as needed.
-   fn,fi already has at most one outgoing wire by construction (every wire
-   into an input replaces whatever was there, and a tap's own two outputs
-   are the only place a "second" wire from the same origin is ever allowed)
-   so there's exactly one thing to check: nothing yet (wire it directly —
-   the common, no-tap-needed case), a real consumer already (insert a tap,
-   moving that consumer onto the tap's first output and the new one onto
-   its second), or an existing tap (recurse into its second output, which
-   is exactly the same question one link further down the chain). */
-function attachConsumer(g,fn,fi,tn,ti,tapKind){
-  const existing=g.wires.filter(w=>w.f[0]===fn&&w.f[1]===fi);
-  if(existing.some(w=>w.t[0]===tn&&w.t[1]===ti)) return;   // already wired exactly this way
-  if(existing.length===0){ _wireUpRaw(g,fn,fi,tn,ti); return; }
-  const only=existing[0];
-  const curTarget=nodeById(only.t[0]);
-  if(curTarget&&curTarget.auto===tapKind){
-    attachConsumer(g,curTarget.id,1,tn,ti,tapKind);
-    return;
-  }
-  const tt=typeOf(tapKind);
-  const tap={id:uid('n'),k:'blk',type:tapKind,auto:tapKind,params:{}};
-  (tt.params||[]).forEach(p=>tap.params[p.name]=p.def);
-  const srcIdx=g.nodes.findIndex(n=>n.id===fn);
-  g.nodes.splice(srcIdx+1,0,tap);
-  g.wires=g.wires.filter(w=>w!==only);
-  _wireUpRaw(g,fn,fi,tap.id,0);
-  _wireUpRaw(g,tap.id,0,only.t[0],only.t[1]);
-  _wireUpRaw(g,tap.id,1,tn,ti);
 }
 function _wireUpRaw(g,fn,fi,tn,ti){
   const src=nodeById(fn), dst=nodeById(tn);
@@ -510,28 +472,15 @@ function _wireUpRaw(g,fn,fi,tn,ti){
   w.back=forwardClosure(g,[tn]).has(fn);
   g.wires.push(w);
 }
-/* an auto node left with too little to do is pointless: a merge block
-   (netor/ADD) with one or zero remaining inputs, or a tap with one or zero
-   remaining outputs, collapses back to a plain direct wire (or vanishes
-   entirely if there's nothing left to connect) rather than leaving a stray
-   auto block with a dangling port. For a tap this naturally shortens the
-   chain one link at a time — whichever specific tap lost a wire is the only
-   one that needs to look at itself. */
+/* a merge block (netor/ADD) left with one or zero remaining inputs is
+   pointless — collapses back to a plain direct wire (or vanishes entirely
+   if there's nothing left to connect) rather than leaving a stray auto
+   block with a dangling port. Fan-out has no node to collapse: removing a
+   consumer is just removing its wire, and the branch it drew simply stops
+   existing on the next reroute. */
 function collapseAutoNode(g,nodeId){
   const n=g.nodes.find(x=>x.id===nodeId);
   if(!n||!n.auto) return;
-  if(n.auto==='wiretap'||n.auto==='wiretap_num'){
-    const outWires=g.wires.filter(w=>w.f[0]===nodeId);
-    if(outWires.length>1) return;
-    const inWires=g.wires.filter(w=>w.t[0]===nodeId);
-    g.nodes=g.nodes.filter(x=>x.id!==nodeId);
-    g.wires=g.wires.filter(w=>w.t[0]!==nodeId&&w.f[0]!==nodeId);
-    if(inWires.length===1&&outWires.length===1){
-      const src=inWires[0], dst=outWires[0];
-      _wireUp(g,src.f[0],src.f[1],dst.t[0],dst.t[1]);
-    }
-    return;
-  }
   const inWires=g.wires.filter(w=>w.t[0]===nodeId);
   if(inWires.length>1) return;
   const outWires=g.wires.filter(w=>w.f[0]===nodeId);

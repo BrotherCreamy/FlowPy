@@ -150,17 +150,19 @@ def({id:'print',name:'PRINT',kind:'FB',group:'Debug',params:[P('label','str','x'
         self.p = x
         _log("%s = %s" % (label, x))`)});
 
-/* connections are not 1:1 — a wire that feeds more than one input is its
-   own hidden node, and a boolean wire fed by more than one output is too
-   (OR'd together, hidden — not the visible OR block a user drags in on
-   purpose). Both are ordinary fixed-shape blocks, chained as many times as
-   needed (see attachConsumer()/collapseAutoNode() in editor.js) rather than
-   grown into a dynamic-arity block, so nothing else in the codegen/sim/
-   layout pipeline needs to know these are special. Not offered in the
-   palette; they only ever appear auto-created. */
+/* connections are not 1:1. A wire fed by more than one output is one input
+   receiving two different values that need combining — that always takes a
+   real computation, so it still gets a hidden merge block (OR'd together
+   here; ADD is the numeric equivalent, defined above as the ordinary
+   visible 'add', reused with .auto set — see mergeKindFor() in editor.js).
+   A wire feeding more than one input is the opposite case: every consumer
+   wants the exact same value, which is just a wire branching — no block,
+   hidden or otherwise, needed at all. codegen already assigns every
+   block's output to its own named variable regardless of how many wires
+   read it (outVar() in codegen.js), so that's the "hidden variable" — it
+   already existed; only the router's fan-out trimming (js/router.js) was
+   needed to draw the branch instead of retracing it once per consumer. */
 def({id:'netor',name:'•',kind:'F',hidden:true,group:'Logic',ins:[IO('a','bool'),IO('b','bool')],outs:[IO('q','bool')],step:'return bool(a) or bool(b)'});
-def({id:'wiretap',name:'•',kind:'F',hidden:true,group:'Logic',ins:[IO('x','bool')],outs:[IO('y','bool'),IO('y2','bool')],step:'return x, x'});
-def({id:'wiretap_num',name:'•',kind:'F',hidden:true,group:'Math',ins:[IO('x','num')],outs:[IO('y','num'),IO('y2','num')],step:'return x, x'});
 
 const BUILTIN = {}; B.forEach(t=>BUILTIN[t.id]=t);
 

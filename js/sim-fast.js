@@ -12,7 +12,6 @@ const JSB={
   and:(p,i)=>[!!i[0]&&!!i[1]],  or:(p,i)=>[!!i[0]||!!i[1]],
   xor:(p,i)=>[!!i[0]!==!!i[1]], not:(p,i)=>[!i[0]],
   netor:(p,i)=>[!!i[0]||!!i[1]],
-  wiretap:(p,i)=>[i[0],i[0]], wiretap_num:(p,i)=>[i[0],i[0]],
   add:(p,i)=>[nz(i[0])+nz(i[1])], sub:(p,i)=>[nz(i[0])-nz(i[1])],
   mul:(p,i)=>[nz(i[0])*nz(i[1])], div:(p,i)=>[nz(i[1])?nz(i[0])/nz(i[1]):0],
   gt:(p,i)=>[nz(i[0])>nz(i[1])], lt:(p,i)=>[nz(i[0])<nz(i[1])], eq:(p,i)=>[i[0]===i[1]],
