@@ -252,7 +252,11 @@ function titleEl(n){
   if(n.k!=='blk') return el('span',{cls:'ttl'},nodeTitle(n));
   const span=el('span',{cls:'ttl',title:'click to change type'});
   span.textContent=nodeTitle(n);
-  span.addEventListener('mousedown',e=>e.stopPropagation());
+  /* no mousedown stopPropagation here on purpose — the title text fills
+     most of the header, and blocking drag-start from it would mean most of
+     a block's own header isn't actually draggable. A plain click (no
+     movement) still opens the rename editor below; the node-drag system
+     only acts on movement, so the two don't conflict. */
   span.addEventListener('click',e=>{
     e.stopPropagation();
     const inp=el('input',{value:nodeTitle(n),cls:'ttl-edit'});

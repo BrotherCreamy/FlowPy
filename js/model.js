@@ -328,21 +328,35 @@ function fanOutGapAfter(graph,s){
 function layoutX(graph){
   for(const id of topoForwardOrder(graph)){
     const n=graph.nodes.find(x=>x.id===id); if(!n) continue;
-    let required=-Infinity, cap=Infinity;
+    let required=-Infinity;
     for(const w of graph.wires){
       if(w.t[0]!==id) continue;
+      if(isBack(graph,w)) continue;                        // a feedback wire's target never gets pulled by its source's x —
+                                                              // see below for why that used to happen and why it was wrong
       const s=graph.nodes.find(x=>x.id===w.f[0]); if(!s) continue;
-      if(isBack(graph,w)) cap=Math.min(cap, portPos(s,'out',w.f[1]).x);         // stay left of the feedback source
-      else required=Math.max(required, portPos(s,'out',w.f[1]).x+fanOutGapAfter(graph,s));
+      required=Math.max(required, portPos(s,'out',w.f[1]).x+fanOutGapAfter(graph,s));
     }
     if(required===-Infinity){
       if(n.k==='gin'||n.k==='gout') continue;             // graph-boundary pins keep their own placement
       n.x=LEFT_MARGIN;                                     // a dataflow root — pinned, not free
       continue;
     }
-    n.x=snap(Math.min(required,cap));
+    n.x=snap(required);
   }
 }
+/* used to also clamp x to stay "left of the feedback source" for any node
+   with a backward-incoming wire — the idea being a shorter feedback shaft.
+   That clamp could pull a node's x BELOW what its own forward dependencies
+   required, because topoForwardOrder (correctly) processes a node before
+   the target of its own outgoing feedback wire, so that target's x hadn't
+   been computed yet in this same pass and read back an understated (stale
+   or default) value. The result: a forward wire's target could end up left
+   of its source — the one thing this whole layout system exists to make
+   impossible. A forward requirement is a hard floor; nothing is allowed to
+   pull a node below it, so the clamp is gone rather than patched — once
+   required can never be violated, min(required, cap) always equals
+   required anyway whenever cap was actually safe to apply, so the clamp
+   was never doing useful work in the cases where it wasn't actively wrong. */
 /* every node's row: 0,1,2,... in the order graph.nodes drives them into being.
    Rows are assigned one whole tree at a time — every row a tree uses is
    claimed before the next tree gets any — so that a tree with more than one
