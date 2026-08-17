@@ -176,6 +176,7 @@ const GRID=20, HDR=GRID, ROW=GRID;
 const MINGAP=2*GRID;      // a downstream block sits at least two units clear of its source
 const LEFT_MARGIN=2*GRID; // every dataflow root (nothing forward-feeds it) aligns to this x — no free-floating starts
 const TOP_MARGIN=2*GRID;  // row 0 starts here
+const VGAP=2*GRID;        // vertical clearance between rows
 const snap = v => Math.round(v/GRID)*GRID;
 function portsOf(n){
   if(n.k==='blk'){ const t=typeOf(n.type); if(!t) return {ins:[],outs:[]};
@@ -243,6 +244,18 @@ function forwardClosure(graph, seeds){
       if(w.f[0]!==id || isBack(graph,w) || set.has(w.t[0])) continue;
       if(!graph.nodes.find(n=>n.id===w.t[0])) continue;
       set.add(w.t[0]); q.push(w.t[0]); } }
+  return set;
+}
+/* the whole tree a block belongs to: everything reachable ignoring wire
+   direction — forward and feedback both count, since it's one connected
+   structure regardless of which way any given edge in it runs. */
+function treeOf(graph, seeds){
+  const set=new Set(seeds), q=[...seeds];
+  while(q.length){ const id=q.shift();
+    for(const w of graph.wires){
+      if(w.f[0]===id && !set.has(w.t[0])){ set.add(w.t[0]); q.push(w.t[0]); }
+      if(w.t[0]===id && !set.has(w.f[0])){ set.add(w.f[0]); q.push(w.f[0]); }
+    } }
   return set;
 }
 /* --- layout: a pure function from graph structure to (x,y) ---------------
@@ -333,7 +346,7 @@ function layoutY(graph){
   for(const n of graph.nodes){ const r=rowOf[n.id]; rowH[r]=Math.max(rowH[r]||0, nodeSize(n).h); }
   const rowY={}; let y=TOP_MARGIN;
   const maxRow=Object.keys(rowH).reduce((m,r)=>Math.max(m,+r),-1);
-  for(let r=0;r<=maxRow;r++){ rowY[r]=y; y+=(rowH[r]||GRID)+GRID; }
+  for(let r=0;r<=maxRow;r++){ rowY[r]=y; y+=(rowH[r]||GRID)+VGAP; }
   for(const n of graph.nodes) n.y=rowY[rowOf[n.id]];
 }
 /* w.back is a structural fact, decided once when the wire is made (see

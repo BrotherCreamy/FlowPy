@@ -91,6 +91,32 @@ function rowInsertIndex(nodes,cursorY){
   }
   return nodes.length;
 }
+/* the y-span a tree currently occupies, used to tell "still inside my own
+   tree" apart from "dragged over a different tree" during a drag */
+function treeRowBand(g,treeIds){
+  let lo=Infinity, hi=-Infinity;
+  for(const n of g.nodes){ if(!treeIds.has(n.id)) continue; lo=Math.min(lo,n.y); hi=Math.max(hi,n.y+nodeSize(n).h); }
+  return lo===Infinity ? {lo:0,hi:0} : {lo,hi};
+}
+/* splice moverIds into graph.nodes' order at the point cursorY is nearest to
+   among scopeNodes — scopeNodes IS the comparison set, so passing every other
+   node reorders globally (a whole-tree swap) and passing just the rest of one
+   tree reorders only within it, leaving every other tree's own position in
+   the array — and so its row — completely untouched.
+   Compares against scopeNodes' current (already-settled) y, not a freshly
+   computed one: laying scopeNodes out in isolation would restart row
+   numbering from 0, losing where they actually sit in the full diagram —
+   exactly the bug this comment used to have. */
+function reorderMovers(g,moverIds,scopeNodes,cursorY){
+  const idx=rowInsertIndex(scopeNodes,cursorY);
+  const moving=g.nodes.filter(n=>moverIds.has(n.id));
+  const rest=g.nodes.filter(n=>!moverIds.has(n.id));
+  let gi;
+  if(idx<scopeNodes.length) gi=rest.findIndex(n=>n.id===scopeNodes[idx].id);
+  else gi=scopeNodes.length ? rest.findIndex(n=>n.id===scopeNodes[scopeNodes.length-1].id)+1 : rest.length;
+  g.nodes=[...rest.slice(0,gi), ...moving, ...rest.slice(gi)];
+  computeLayout(g);
+}
 function addNode(kind,t,x,y){
   const g=G(); const n={id:uid('n'),k:kind};
   if(kind==='blk'){ n.type=t.id; n.params={}; (t.params||[]).forEach(p=>n.params[p.name]=p.def); }
@@ -353,9 +379,16 @@ cwrap.addEventListener('mousedown',e=>{
   if(nd){ const n=nodeById(nd.dataset.id);
     if(!sel.nodes.has(n.id)) selectOnly(n.id);
     const g=G();
-    const movers = e.altKey ? new Set(sel.nodes) : forwardClosure(g,[...sel.nodes]);
+    const seeds=[...sel.nodes];
+    const alt=e.altKey;
+    /* the tree is fixed for the whole gesture (wire topology doesn't change
+       mid-drag); which part of it actually moves — just the grabbed branch,
+       or the whole tree — is decided fresh every mousemove, from where the
+       cursor is relative to the tree's own current row-span. */
+    const myTree=alt ? null : treeOf(g,seeds);
+    const movers=alt ? new Set(seeds) : forwardClosure(g,seeds);
     movers.forEach(id=>{const d=nodesL.querySelector(`.node[data-id="${id}"]`); if(d)d.classList.add('moving');});
-    drag={type:'node',movers,moved:false}; e.preventDefault(); return; }
+    drag={type:'node',seeds,alt,myTree,moved:false}; e.preventDefault(); return; }
   selectOnly(null);
   drag={type:'pan',x0:e.clientX,y0:e.clientY,cx:cam.x,cy:cam.y};
 });
@@ -371,21 +404,26 @@ document.addEventListener('mousemove',e=>{
   if(drag.type==='pan'){ cam.x=drag.cx+(e.clientX-drag.x0); cam.y=drag.cy+(e.clientY-drag.y0); applyCam(); }
   else if(drag.type==='node'){
     drag.moved=true;
-    /* dragging is reordering, not placement: find the row the cursor is
-       nearest to among everything NOT being dragged, splice the movers to
-       that point in graph.nodes' order — the only record of sequence there
-       is — and lay the whole graph out fresh. x is never touched by a drag;
-       it is always exactly whatever the wires require. */
+    /* dragging is reordering, not placement. Which unit moves is decided by
+       what it's currently being dragged over: still within the grabbed
+       branch's own tree, only that branch reorders against its siblings;
+       dragged out over another tree, the whole tree swaps with it. x is
+       never touched by a drag; it is always exactly whatever the wires
+       require. */
     const cursorY=toGraph(e.clientX,e.clientY).y;
     const g=G();
-    const others=g.nodes.filter(n=>!drag.movers.has(n.id));
-    computeLayout({nodes:others,wires:g.wires});
-    const idx=rowInsertIndex(others,cursorY);
-    const moving=g.nodes.filter(n=>drag.movers.has(n.id));
-    g.nodes=[...others.slice(0,idx), ...moving, ...others.slice(idx)];
-    computeLayout(g);
+    let movers,scope;
+    if(drag.alt){ movers=new Set(drag.seeds); scope=g.nodes.filter(n=>!movers.has(n.id)); }
+    else{
+      const band=treeRowBand(g,drag.myTree);
+      if(cursorY<band.lo || cursorY>band.hi){ movers=drag.myTree; scope=g.nodes.filter(n=>!movers.has(n.id)); }
+      else{ movers=forwardClosure(g,drag.seeds); scope=g.nodes.filter(n=>drag.myTree.has(n.id)&&!movers.has(n.id)); }
+    }
+    $$('.node.moving').forEach(d=>d.classList.remove('moving'));
+    movers.forEach(id=>{const d=nodesL.querySelector(`.node[data-id="${id}"]`); if(d)d.classList.add('moving');});
+    reorderMovers(g,movers,scope,cursorY);
     for(const n of g.nodes){ const d=nodesL.querySelector(`.node[data-id="${n.id}"]`); if(d){d.style.left=n.x+'px'; d.style.top=n.y+'px';} }
-    updateWires(true); }
+    rerouteAll(); }
   else if(drag.type==='wire'){ const p=toGraph(e.clientX,e.clientY);
     const q={x:snap(p.x),y:snap(p.y)}, anc={x:drag.ax,y:drag.ay};
     drag.temp.setAttribute('d', drag.rev? quickPath(q,anc,anc.x<=q.x) : quickPath(anc,q,q.x<=anc.x));
