@@ -2,7 +2,7 @@
 /* =====================================================================
    FlowPy — editor UI
    ===================================================================== */
-const cwrap=$('#cwrap'), world=$('#world'), nodesL=$('#nodes'), wireg=$('#wireg');
+const cwrap=$('#cwrap'), world=$('#world'), nodesL=$('#nodes'), wireg=$('#wireg'), wiresSvg=$('#wires');
 let cam={x:60,y:60,z:1};
 let view={stack:[]};                 // [{typeId, path}]
 let sel={nodes:new Set(), wires:new Set()};
@@ -33,7 +33,17 @@ const curPath = ()=> view.stack.length? view.stack[view.stack.length-1].path : '
 const G = ()=> { const t=curType(); return t? (t.graph||(t.graph={nodes:[],wires:[]})) : P_.main; };
 const nodeById = id => G().nodes.find(n=>n.id===id);
 
-function applyCam(){ world.style.transform=`translate(${cam.x}px,${cam.y}px) scale(${cam.z})`;
+function applyCam(){ world.style.transform=`translate(${cam.x}px,${cam.y}px)`;
+  /* #world itself only pans now. The two child layers scale independently:
+     #wires (SVG) keeps a `transform:scale` — vector content re-rasterizes
+     cleanly under a transform, so this alone was already crisp at any zoom.
+     #nodes (HTML) uses `zoom` instead of `transform:scale` — HTML scaled via
+     transform is a GPU-compositor bitmap stretch (blurry mid-zoom until the
+     next idle repaint); `zoom` forces a real per-level re-layout, so text/
+     borders/ports stay crisp continuously as cam.z changes, not just once
+     the gesture settles. */
+  wiresSvg.style.transform=`scale(${cam.z})`;
+  nodesL.style.zoom=cam.z;
   const g=GRID*cam.z;
   cwrap.style.backgroundSize=g+'px '+g+'px, auto';
   cwrap.style.backgroundPosition=cam.x+'px '+cam.y+'px, 0 0';

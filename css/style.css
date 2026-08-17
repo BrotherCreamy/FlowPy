@@ -63,9 +63,20 @@ label{font-size:11px;color:var(--fg2)}
 /* canvas */
 #cwrap{flex:1;position:relative;overflow:hidden;background:
   radial-gradient(circle at 1px 1px, #2b3340 1px, transparent 0) 0 0/20px 20px, #14181f;cursor:default}
+/* #world only ever pans (translate) now — zoom is split per-layer below, since
+   the two layers need different scaling mechanisms to both stay crisp. */
 #world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+/* SVG re-vectorizes under a CSS transform, so `scale()` stays pixel-crisp at
+   any zoom — this box is deliberately sized/centered so its own default
+   transform-origin (50% 50%, i.e. its own centre) lands exactly on graph
+   origin (0,0), the same point #world used to scale everything around. */
 #wires{position:absolute;left:-20000px;top:-20000px;width:40000px;height:40000px;overflow:visible;pointer-events:none}
 #wires .hit{stroke:transparent;stroke-width:14;fill:none;pointer-events:stroke;cursor:pointer}
+/* HTML content scaled via `transform` is a GPU-compositor bitmap stretch —
+   fast, but visibly blurry mid-zoom until the next idle repaint. `zoom`
+   instead forces a genuine per-level re-layout of every descendant (text,
+   borders, port shapes), so it stays crisp continuously as cam.z changes —
+   see applyCam() in editor.js, which sets #nodes.style.zoom = cam.z. */
 #nodes{position:absolute;left:0;top:0}
 #crumb{position:absolute;left:8px;top:8px;z-index:5;display:flex;gap:6px;align-items:center;background:rgba(21,26,33,.92);border:1px solid var(--line);border-radius:var(--r);padding:4px 8px;font-size:12px}
 #crumb a{color:var(--acc);cursor:pointer;text-decoration:none}
@@ -89,7 +100,7 @@ label{font-size:11px;color:var(--fg2)}
 .node.k-io .hd{background:linear-gradient(#3a2a17,#2a1f12)}
 .node.k-var .hd{background:linear-gradient(#3a1f2c,#2a1720)}
 .node.k-const .hd{background:linear-gradient(#242a33,#1a1f26)}
-.node .body{position:relative;margin:-1px 0 0 -1px}  /* cancel .node's own 1px border so ports/wires land on the same grid point */
+.node .body{position:relative}  /* .node is borderless now (see the theme block below) — no border-compensating margin needed; ports/wires already land on the same grid point without it */
 .port{position:absolute;width:11px;height:11px;border-radius:50%;background:#0b0e13;border:2px solid var(--line2);cursor:crosshair;z-index:2}
 .port:hover,.port.tgt{border-color:var(--acc);background:var(--acc);box-shadow:0 0 8px var(--acc)}
 .port.bool{border-radius:2px}
@@ -154,12 +165,12 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node{background:var(--nbody);color:var(--ntxt);border:none;border-radius:0;box-shadow:none;cursor:move;font-weight:300}
 /* selection/drag/error states are hairline outlines (calc(px * --iz)) — the
    box itself stays borderless, these only ever appear as transient feedback.
-   Caveat: outline-width (like border-width) is snapped to a whole local CSS
-   px by the browser before #world's scale() transform is applied, and never
-   drawn below ~1 local px — so this stays a genuine, bounded hairline across
-   the app's zoom range (0.25x–2.5x) rather than a perfectly exact 1 device
-   px at every zoom (that would need an SVG overlay instead of CSS outline,
-   the way wires do it below — not worth it for a transient selection cue). */
+   Resolves to an exact constant 1 device px at any zoom because #nodes is
+   scaled with `zoom` (real per-level layout, see applyCam() in editor.js),
+   not `transform:scale` — a transform-scaled bitmap layer snaps fractional
+   border/outline widths to a whole local CSS px before the transform ever
+   applies, which used to leave this only an approximate, bounded hairline;
+   that whole failure mode doesn't exist under `zoom`. */
 .node.sel{outline:calc(1px*var(--iz)) solid #fff;outline-offset:calc(3px*var(--iz))}
 .node.moving{outline:calc(1px*var(--iz)) dashed #fff;outline-offset:calc(3px*var(--iz))}
 .node.err{outline:calc(1px*var(--iz)) solid var(--err);outline-offset:calc(3px*var(--iz))}
