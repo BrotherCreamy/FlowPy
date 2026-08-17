@@ -196,7 +196,7 @@ function parsePts(d){
    connect, not explained away with a symbol — and a still-earlier sub-pixel
    version of this same idea, which only offset the exact contested cells
    and moved by a few px instead of a full grid step. */
-const LANESTEP=GRID;
+const LANESTEP=GRID, LANECAP=2;   // look at most 2 grid units either side before giving up on finding a clear lane
 function segsOf(wireId){
   const d=ROUTES[wireId]; if(!d) return [];
   const pts=parsePts(d), segs=[];
@@ -259,14 +259,20 @@ function computeVisualPaths(g){
       for(const wid of wireIds){
         const wSegs=group.filter(e=>e.wireId===wid).map(e=>e.seg);
         let chosen=null;
-        outer: for(let k=0;k<20;k++){
+        /* a couple of lanes out is a deliberate, readable jog; searching
+           indefinitely for *any* clear lane can walk a wire clean around a
+           whole cluster of blocks looking for one, which reads as far more
+           broken than the small overlap it was trying to avoid — better to
+           leave a short, local overlap between two wires than send one on a
+           detour through unrelated geometry to eliminate it. */
+        outer: for(let k=0;k<=LANECAP;k++){
           for(const cand of (k===0?[0]:[k*LANESTEP,-k*LANESTEP])){
             if(taken.has(cand)) continue;
             const clear=wSegs.every(s=>laneClear(horiz,baseCoord+cand,segRange(s),obs));
             if(clear){ chosen=cand; break outer; }
           }
         }
-        if(chosen===null) chosen=0;   // boxed in on every lane — leave it where the router put it rather than crowd an arbitrary block
+        if(chosen===null) chosen=0;   // no clear lane nearby — leave it where the router put it rather than detour around unrelated blocks to find one
         taken.add(chosen);
         for(const s of wSegs) (offsetOf[wid]=offsetOf[wid]||{})[s.segIdx]=chosen;
       }
