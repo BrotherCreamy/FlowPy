@@ -300,7 +300,7 @@ function buildNode(n){
   p.ins.forEach((pt,i)=>{
     const y=GRID*(2+i)-HDR;
     const wired=isVarBox&&gg.wires.some(w=>w.t[0]===n.id&&w.t[1]===i);
-    const port=el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:-5px;top:${y-5}px`,'data-n':n.id,'data-s':'in','data-i':i,title:isVarBox?'set '+n.varName:pt.name+':'+pt.type});
+    const port=el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:-6px;top:${y-6}px`,'data-n':n.id,'data-s':'in','data-i':i,title:isVarBox?'set '+n.varName:pt.name+':'+pt.type});
     hookValueHover(port,inputKeyFn(n.id,i));
     body.append(port);
     if(pt.name){ const lbl=el('div',{cls:'plabel',style:`left:12px;top:${y-7}px`},pt.name);
@@ -308,7 +308,7 @@ function buildNode(n){
   p.outs.forEach((pt,i)=>{
     const y=GRID*(2+i)-HDR;
     const wired=isVarBox&&gg.wires.some(w=>w.f[0]===n.id&&w.f[1]===i);
-    body.append(el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:${s.w-5}px;top:${y-5}px`,'data-n':n.id,'data-s':'out','data-i':i,title:isVarBox?'get '+n.varName:pt.name+':'+pt.type}));
+    body.append(el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:${s.w-6}px;top:${y-6}px`,'data-n':n.id,'data-s':'out','data-i':i,title:isVarBox?'get '+n.varName:pt.name+':'+pt.type}));
     if(pt.name) body.append(el('div',{cls:'plabel',style:`right:12px;top:${y-7}px;text-align:right`},pt.name)); });
   if(hasField(n)){
     const rows=Math.max(p.ins.length,p.outs.length,1);

@@ -5,14 +5,14 @@
   --fb:#7c5cff; --f:#00b3a4; --io:#f5883f; --varc:#e0679b; --konst:#8a94a6;
   --r:6px; --mono:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono","IBM Plex Mono",Menlo,Consolas,"Liberation Mono",monospace;
   /* --iz: inverse of the current canvas zoom (cam.z), kept live by applyCam().
-     Anything drawn inside #world is inside a CSS `scale(cam.z)` transform, so a
-     local size of `Npx * var(--iz)` renders on screen at a constant N device
-     px at any zoom — used for every hairline (outlines, port strokes) that
-     should never get thick when zoomed in or vanish when zoomed out. Content
-     that SHOULD grow/shrink with zoom (text, port/block geometry) is left as
-     a plain px value, uncompensated. */
+     #nodes is scaled with CSS `zoom:cam.z`, so a local size of
+     `Npx * var(--iz)` renders on screen at a constant N device px at any
+     zoom — used for every hairline (outlines) that should never get thick
+     when zoomed in or vanish when zoomed out. Content that SHOULD grow/
+     shrink with zoom (text, port/block geometry) is left as a plain px
+     value, uncompensated. */
   --iz:1;
-  --nbody:#d7d9dc; --ntitle:#33363a; --ntxt:#1b1d20; --nport:#33363a;
+  --nbody:#4a4d52; --ntitle:#2a2c30; --ntxt:#ececee; --nport:#a9adb3; --nline:#a9adb3;
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
@@ -161,7 +161,7 @@ pre.code{width:100%;font:11px/1.45 var(--mono);background:#0b0e13;border:1px sol
 button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 #crumb,#hint,.tabs .tab,#ghost .node{border-radius:0}
 
-/* ======= blocks: borderless — light-grey body, dark-grey title bar, no box outline ======= */
+/* ======= blocks: borderless — medium/dark-grey body, dark-grey title bar, no box outline ======= */
 .node{background:var(--nbody);color:var(--ntxt);border:none;border-radius:0;box-shadow:none;cursor:move;font-weight:300}
 /* selection/drag/error states are hairline outlines (calc(px * --iz)) — the
    box itself stays borderless, these only ever appear as transient feedback.
@@ -181,23 +181,29 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node.k-FB .hd .badge,.node.k-F .hd .badge{
   background:transparent;color:#f2f3f5;border:calc(1px*var(--iz)) solid #f2f3f5;border-radius:0;font-weight:700}
 .node .plabel{color:var(--ntxt);opacity:.7}
-.node .pfield input{background:#fff;border:calc(1px*var(--iz)) solid var(--ntitle);color:var(--ntxt)}
+.node .pfield input{background:#fff;border:calc(1px*var(--iz)) solid var(--ntitle);color:#1b1d20}
 .node .hd .ttl-edit{background:var(--ntitle);border:calc(1px*var(--iz)) solid #f2f3f5;color:#f2f3f5}
 .node.auto .hd::after{content:'auto';font-size:8px;opacity:.7;margin-left:auto;padding-left:4px;font-weight:400;color:#f2f3f5}
 .node.vbox .port{opacity:0;pointer-events:none;transition:opacity .12s}
 .node.vbox:hover .port{opacity:1;pointer-events:auto}
 .node.vbox .port.wired{opacity:1;pointer-events:auto}
-/* connection points: dark-grey semicircles/half-squares SET INTO the block —
-   the .port div itself keeps its original full size/position (still centred
-   exactly on the block edge, same as before) so its click/drag hit area is
-   unchanged; clip-path lives on a ::before overlay instead of the div
-   itself, because clip-path removes the CLIPPED region from hit-testing too
-   — applying it straight to .port silently cut the interactive area in half
-   right along the boundary the user clicks nearest. The overlay paints only
-   the inward half (dark-grey fill); the half that would poke out past the
-   edge is simply not drawn, so the port reads as a flush notch, not a bead
-   straddling the boundary, while remaining just as easy to grab as before. */
-.port{width:11px;height:11px;background:transparent;border:none;border-radius:0;box-shadow:none;position:absolute}
+/* connection points: light/medium-grey semicircles/half-squares SET INTO the
+   block — the .port div itself keeps its original full size/position (still
+   centred exactly on the block edge, same as before) so its click/drag hit
+   area is unchanged; clip-path lives on a ::before overlay instead of the
+   div itself, because clip-path removes the CLIPPED region from hit-testing
+   too — applying it straight to .port silently cut the interactive area in
+   half right along the boundary the user clicks nearest. The overlay paints
+   only the inward half; the half that would poke out past the edge is
+   simply not drawn, so the port reads as a flush notch, not a bead
+   straddling the boundary, while remaining just as easy to grab as before.
+   Size is deliberately EVEN (12px, not 11) — an odd width centred via an
+   integer left offset (-N) always lands its middle at N+0.5, not N, which
+   put the 50% clip boundary — and so the flush edge — half a pixel off the
+   true block edge (invisible under the old blurry transform-scaled
+   rendering, obvious once #nodes switched to crisp `zoom` layout: a visible
+   gap on the in-port side, a visible overhang on the out-port side). */
+.port{width:12px;height:12px;background:transparent;border:none;border-radius:0;box-shadow:none;position:absolute}
 .port::before{content:'';position:absolute;inset:0;background:var(--nport);border-radius:50%}
 .port[data-s="in"]::before{clip-path:inset(0 0 0 50%)}
 .port[data-s="out"]::before{clip-path:inset(0 50% 0 0)}
@@ -207,8 +213,8 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
    width is no longer subject to the #world scale() transform at all. the
    crossing-gap length (router.js gappedD) is handled separately since it's
    baked into path geometry, not a stroke property — see HOPGAP_SCREEN_PX. */
-.wire{stroke:#fff;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;vector-effect:non-scaling-stroke}
-.wire.back{stroke:#fff;stroke-dasharray:6 4}
+.wire{stroke:var(--nline);stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;vector-effect:non-scaling-stroke}
+.wire.back{stroke:var(--nline);stroke-dasharray:6 4}
 .wire.sel{stroke:var(--acc);stroke-width:2}
 .wlabel{fill:#fff;stroke:#14181f;stroke-width:2px;vector-effect:non-scaling-stroke;font-weight:300}
 .wlabel.backlabel{fill:#fff}
