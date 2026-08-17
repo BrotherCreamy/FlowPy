@@ -320,9 +320,16 @@ function startWireTapDrag(wireId,e){
     const g=G();
     const w=g.wires.find(x=>x.id===wireId); if(!w) return;
     const src=nodeById(w.f[0]); if(!src) return;
-    const p=portPos(src,'out',w.f[1]);
+    /* the dragged wire starts exactly where the click landed, not at the
+       source port — dragging off the middle of a long wire shouldn't jump
+       the visible line back to the port first. It only has to look right
+       while it's being dragged: connect() below wires the new consumer to
+       the real port (w.f[0]/w.f[1]), and the next render throws this temp
+       path away for the actual routed one, which starts at the port like
+       every other wire. */
+    const click=toGraph(x0,y0);
     const temp=mkTemp();
-    drag={type:'wire',node:w.f[0],idx:w.f[1],ax:p.x,ay:p.y,temp,rev:false};
+    drag={type:'wire',node:w.f[0],idx:w.f[1],ax:click.x,ay:click.y,temp,rev:false};
   };
   const up=()=>{
     document.removeEventListener('mousemove',mv);
