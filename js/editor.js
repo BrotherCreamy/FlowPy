@@ -101,7 +101,8 @@ function rowInsertIndex(nodes,cursorY){
    row). Every unit carries the original (pre-drag) span it occupies and the
    earliest original array position of anything in it. */
 function unitsSingleton(scopeIds,originalIds,originalPos){
-  return scopeIds.map(id=>({ids:[id],hi:originalPos[id].y+nodeSize(nodeById(id)).h,firstIdx:originalIds.indexOf(id)}));
+  return scopeIds.map(id=>{ const n=nodeById(id);
+    return {ids:[id],lo:originalPos[id].y,hi:originalPos[id].y+nodeSize(n).h,firstIdx:originalIds.indexOf(id)}; });
 }
 function unitsByTree(g,scopeIds,originalIds,originalPos){
   const scopeSet=new Set(scopeIds), seen=new Set(), units=[];
@@ -109,26 +110,34 @@ function unitsByTree(g,scopeIds,originalIds,originalPos){
     if(seen.has(id)) continue;
     const ids=[...treeOf(g,[id])].filter(x=>scopeSet.has(x));
     ids.forEach(x=>seen.add(x));
-    let hi=-Infinity, firstIdx=Infinity;
-    for(const x of ids){ hi=Math.max(hi,originalPos[x].y+nodeSize(nodeById(x)).h); firstIdx=Math.min(firstIdx,originalIds.indexOf(x)); }
-    units.push({ids,hi,firstIdx});
+    let lo=Infinity, hi=-Infinity, firstIdx=Infinity;
+    for(const x of ids){ lo=Math.min(lo,originalPos[x].y); hi=Math.max(hi,originalPos[x].y+nodeSize(nodeById(x)).h); firstIdx=Math.min(firstIdx,originalIds.indexOf(x)); }
+    units.push({ids,lo,hi,firstIdx});
   }
   return units;
 }
-/* Where to splice the movers into restIds so that touching a unit's span AT
-   ALL — its top edge is enough, never mind its midpoint — swaps places with
-   it: land after it if the movers started out ahead of it (dragged down onto
-   it), before it if they started out behind (dragged up onto it). Touching
-   nothing (cursor already past every unit) means "send it to the far end". */
+/* Where to splice the movers into restIds — or null for "nowhere yet". A
+   unit only counts as touched while the cursor is actually inside its span,
+   [lo,hi), no padding either side: leaving the grabbed tree/branch's own
+   border doesn't by itself mean anything touched, it just means nothing is
+   touched *yet*, right up until the cursor reaches the next one's own top
+   edge. Landing past every unit (below the lowest one) is the one exception
+   — that unambiguously means "put it last", nothing left to touch.
+   Touching one swaps with it: land after it if the movers started out ahead
+   of it (dragged down onto it), before it if they started out behind
+   (dragged up onto it). */
 function spliceIndexForTouch(units,cursorY,moverFirstIdx,restIds){
-  const target=units.find(u=>cursorY<u.hi);
-  if(!target) return restIds.length;
-  if(moverFirstIdx<target.firstIdx){
-    const lastId=target.ids.reduce((a,b)=>restIds.indexOf(a)>restIds.indexOf(b)?a:b);
-    return restIds.indexOf(lastId)+1;
+  const target=units.find(u=>cursorY>=u.lo && cursorY<u.hi);
+  if(target){
+    if(moverFirstIdx<target.firstIdx){
+      const lastId=target.ids.reduce((a,b)=>restIds.indexOf(a)>restIds.indexOf(b)?a:b);
+      return restIds.indexOf(lastId)+1;
+    }
+    const firstId=target.ids.reduce((a,b)=>restIds.indexOf(a)<restIds.indexOf(b)?a:b);
+    return restIds.indexOf(firstId);
   }
-  const firstId=target.ids.reduce((a,b)=>restIds.indexOf(a)<restIds.indexOf(b)?a:b);
-  return restIds.indexOf(firstId);
+  if(cursorY>=Math.max(...units.map(u=>u.hi))) return restIds.length;
+  return null;
 }
 /* Build the whole reordering preview from nothing but the drag's fixed
    original snapshot (taken once, at mousedown) and the live cursor position
@@ -163,6 +172,11 @@ function dragPreview(g,drag,cursorY){
   const moverFirstIdx=Math.min(...originalIds.map((id,i)=>movers.has(id)?i:Infinity));
   const restIds=originalIds.filter(id=>!movers.has(id));
   const gi=spliceIndexForTouch(units,cursorY,moverFirstIdx,restIds);
+  /* null: nothing is actually touched yet (e.g. just past the grabbed
+     tree/branch's own border, still in the gap before the next one) — hold
+     at the original order rather than preview a swap with whatever's
+     nearest. */
+  if(gi===null){ g.nodes=originalIds.map(id=>byId[id]); computeLayout(g); return movers; }
   const movingIds=originalIds.filter(id=>movers.has(id));
   const newOrder=[...restIds.slice(0,gi), ...movingIds, ...restIds.slice(gi)];
   g.nodes=newOrder.map(id=>byId[id]);
