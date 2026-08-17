@@ -184,14 +184,18 @@ function parsePts(d){
    pick the same corridor independently — the whole straight shaft that's in
    conflict moves a full grid unit to one side, not just the pixels where it
    happens to coincide: a partial, mid-shaft nudge would read as a rendering
-   glitch, a whole-shaft jog at a grid unit reads as a deliberate lane. The
-   segment right at a real port is never moved, so every wire still visibly
-   lands exactly on the port it's drawn from. This replaced an earlier
-   junction-dot marker for the shared-port case — the user wanted wires kept
-   visually apart even when they *do* connect, not explained away with a
-   symbol — and a still-earlier sub-pixel version of this same idea, which
-   only offset the exact contested cells and moved by a few px instead of a
-   full grid step. */
+   glitch, a whole-shaft jog at a grid unit reads as a deliberate lane.
+   Offsets are chosen nearest-to-original first and skip any position that
+   would run the shaft through — or flush against — a block, so a wire that
+   happens to run alongside one always keeps the same one-grid clearance the
+   router already gives it elsewhere, and never gets crowded up against it
+   just because a lane needed to move. The segment right at a real port is
+   never moved, so every wire still visibly lands exactly on the port it's
+   drawn from. This replaced an earlier junction-dot marker for the shared-
+   port case — the user wanted wires kept visually apart even when they *do*
+   connect, not explained away with a symbol — and a still-earlier sub-pixel
+   version of this same idea, which only offset the exact contested cells
+   and moved by a few px instead of a full grid step. */
 const LANESTEP=GRID;
 function segsOf(wireId){
   const d=ROUTES[wireId]; if(!d) return [];
@@ -205,9 +209,17 @@ function segsOf(wireId){
 }
 function segLine(s){ return s.horiz? 'h'+s.a.y : 'v'+s.a.x; }
 function segRange(s){ return s.horiz? [Math.min(s.a.x,s.b.x),Math.max(s.a.x,s.b.x)] : [Math.min(s.a.y,s.b.y),Math.max(s.a.y,s.b.y)]; }
+function laneClear(horiz,coord,range,obs){
+  const [r0,r1]=range;
+  for(let p=r0;p<=r1;p+=GRID){
+    if(blocked(obs, horiz?p:coord, horiz?coord:p)) return false;
+  }
+  return true;
+}
 const VISPTS={};              // wireId -> lane-offset-adjusted, simplified point list
 function computeVisualPaths(g){
   for(const k in VISPTS) delete VISPTS[k];
+  const obs=obstaclesOf(g);
   const segsByWire={};
   for(const w of g.wires) segsByWire[w.id]=segsOf(w.id);
   /* only interior segments (not the one touching either real endpoint) are
@@ -238,13 +250,25 @@ function computeVisualPaths(g){
     }
     const groups={};
     entries.forEach((e,i)=>{ const r=find(i); (groups[r]=groups[r]||[]).push(e); });
+    const horiz=line[0]==='h', baseCoord=parseFloat(line.slice(1));
     for(const gk in groups){
       const group=groups[gk];
       const wireIds=[...new Set(group.map(e=>e.wireId))].sort();
       if(wireIds.length<2) continue;      // everything here belongs to one wire — no conflict, nothing to move
-      for(const e of group){
-        const lane=wireIds.indexOf(e.wireId)-(wireIds.length-1)/2;
-        (offsetOf[e.wireId]=offsetOf[e.wireId]||{})[e.seg.segIdx]=lane*LANESTEP;
+      const taken=new Set();
+      for(const wid of wireIds){
+        const wSegs=group.filter(e=>e.wireId===wid).map(e=>e.seg);
+        let chosen=null;
+        outer: for(let k=0;k<20;k++){
+          for(const cand of (k===0?[0]:[k*LANESTEP,-k*LANESTEP])){
+            if(taken.has(cand)) continue;
+            const clear=wSegs.every(s=>laneClear(horiz,baseCoord+cand,segRange(s),obs));
+            if(clear){ chosen=cand; break outer; }
+          }
+        }
+        if(chosen===null) chosen=0;   // boxed in on every lane — leave it where the router put it rather than crowd an arbitrary block
+        taken.add(chosen);
+        for(const s of wSegs) (offsetOf[wid]=offsetOf[wid]||{})[s.segIdx]=chosen;
       }
     }
   }
@@ -270,7 +294,12 @@ function computeVisualPaths(g){
    get that. Operates on the lane-offset VISPTS, not the raw grid ROUTES, so
    a gap lands on the geometry actually being drawn. */
 const GAPS={};                // wireId -> [{point:{x,y}, segIdx}] (segIdx into VISPTS)
-const HOPGAP=6;                // px pulled back on each side of a crossing
+/* small enough that both stubs stay visible even when a crossing sits close
+   to one end of a short segment — e.g. right where the "under" wire is
+   about to turn into the port of a block it's running alongside. A wider
+   gap could eat the whole short side and look like the wire just stopped
+   instead of visibly passing under and re-emerging. */
+const HOPGAP=3;                // px pulled back on each side of a crossing
 function computeCrossingGaps(g){
   for(const k in GAPS) delete GAPS[k];
   const segsByWire={};
