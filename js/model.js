@@ -316,28 +316,47 @@ function layoutX(graph){
     n.x=snap(Math.min(required,cap));
   }
 }
-/* every node's row: 0,1,2,... in the order graph.nodes drives them into being */
+/* every node's row: 0,1,2,... in the order graph.nodes drives them into being.
+   Rows are assigned one whole tree at a time — every row a tree uses is
+   claimed before the next tree gets any — so that a tree with more than one
+   independent root (two sources merging into one block further along) can
+   never end up with another, unrelated tree's rows sandwiched in the gap
+   between its own. Which tree goes first is decided by the earliest array
+   position of ANY of its members, same rule as everywhere else: order comes
+   from the array, nothing else. */
 function layoutRows(graph){
   const rowOf={};
-  let nextRow=0;
   const arrayIndex={}; graph.nodes.forEach((n,i)=>arrayIndex[n.id]=i);
-  const forwardOutsOf=id=>{
-    const seen=new Set(), outs=[];
-    for(const w of graph.wires){
-      if(w.f[0]!==id||isBack(graph,w)||seen.has(w.t[0])||!(w.t[0] in arrayIndex)) continue;
-      seen.add(w.t[0]); outs.push(w.t[0]);
-    }
-    outs.sort((a,b)=>arrayIndex[a]-arrayIndex[b]);          // deterministic: earlier in the array = first branch
-    return outs;
-  };
-  const place=(id,row)=>{
-    if(rowOf[id]!==undefined) return;
-    rowOf[id]=row;
-    forwardOutsOf(id).forEach((cid,i)=>{ if(i===0) place(cid,row); else place(cid,++nextRow); });
-  };
-  const hasForwardIn=id=>graph.wires.some(w=>w.t[0]===id && !isBack(graph,w) && (w.f[0] in arrayIndex));
-  for(const n of graph.nodes){ if(rowOf[n.id]!==undefined||hasForwardIn(n.id)) continue; place(n.id,nextRow); nextRow++; }
-  for(const n of graph.nodes){ if(rowOf[n.id]===undefined){ place(n.id,nextRow); nextRow++; } }  // multi-input / fed-from-later
+  const seen=new Set(), trees=[];
+  for(const n of graph.nodes){
+    if(seen.has(n.id)) continue;
+    const ids=treeOf(graph,[n.id]);
+    let firstIndex=Infinity;
+    ids.forEach(id=>{ seen.add(id); firstIndex=Math.min(firstIndex,arrayIndex[id]); });
+    trees.push({ids,firstIndex});
+  }
+  trees.sort((a,b)=>a.firstIndex-b.firstIndex);
+  let nextRow=0;
+  for(const tree of trees){
+    const members=graph.nodes.filter(n=>tree.ids.has(n.id));
+    const forwardOutsOf=id=>{
+      const outs=[], seenC=new Set();
+      for(const w of graph.wires){
+        if(w.f[0]!==id||isBack(graph,w)||seenC.has(w.t[0])||!tree.ids.has(w.t[0])) continue;
+        seenC.add(w.t[0]); outs.push(w.t[0]);
+      }
+      outs.sort((a,b)=>arrayIndex[a]-arrayIndex[b]);        // deterministic: earlier in the array = first branch
+      return outs;
+    };
+    const place=(id,row)=>{
+      if(rowOf[id]!==undefined) return;
+      rowOf[id]=row;
+      forwardOutsOf(id).forEach((cid,i)=>{ if(i===0) place(cid,row); else place(cid,++nextRow); });
+    };
+    const hasForwardIn=id=>graph.wires.some(w=>w.t[0]===id && !isBack(graph,w) && tree.ids.has(w.f[0]));
+    for(const n of members){ if(rowOf[n.id]!==undefined||hasForwardIn(n.id)) continue; place(n.id,nextRow); nextRow++; }
+    for(const n of members){ if(rowOf[n.id]===undefined){ place(n.id,nextRow); nextRow++; } }  // multi-input within the tree
+  }
   return rowOf;
 }
 function layoutY(graph){
