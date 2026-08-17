@@ -226,19 +226,26 @@ function nodeSize(n){
     const lw = Math.max(...p.ins.map(x=>x.name.length),0)*7.8, rw=Math.max(...p.outs.map(x=>x.name.length),0)*7.8;
     w = Math.max(w, lw+rw+62, (t?t.name.length:4)*9.5+54); }
   w = Math.ceil(w/GRID)*GRID;                       // width is a whole number of cells
-  let h = GRID*(rows+1);                            // header cell + one cell per port row, no extra margin — see portPos()
+  let h = GRID*(rows+1);                            // header cell + one cell per port row + 2*PORT_PAD (== GRID, see portPos)
   if(hasField(n)) h += GRID;
   return {w,h};
 }
-/* port centres always land on a grid intersection — required for the A*
-   router's cell-stepped pathfinding, so this offset can only ever move by a
-   whole GRID unit, never a fraction of one. The first port sits exactly one
-   grid unit down (immediately after the header's own one-grid-unit slot),
-   not two — the extra unit of empty margin above/below the port rows that
-   used to be here is gone; see nodeSize()'s matching h. */
+/* PORT_PAD: a small, fixed breathing-room gap above the first port row and
+   below the last (half of what it used to be — GRID, i.e. a whole unit,
+   was too much once block-to-block spacing tightened to just one grid
+   unit; zero, tried right after that, read as no margin at all). This does
+   NOT need to be a multiple of GRID itself: the A* router only ever steps
+   by whole GRID units starting from a port's position (DX/DY in router.js),
+   so all it actually requires is that the DIFFERENCE between any two ports'
+   coordinates is a grid multiple — true as long as every port adds the
+   exact same constant, since it then cancels out of every such difference.
+   nodeSize()'s h stays a clean multiple of GRID (2*PORT_PAD == GRID here)
+   so row-to-row spacing keeps that same difference-is-a-grid-multiple
+   property across separate blocks, not just within one. */
+const PORT_PAD=GRID/2;
 function portPos(n, side, i){
   const s=nodeSize(n);
-  return { x: n.x + (side==='in'?0:s.w), y: n.y + GRID*(1+i) };
+  return { x: n.x + (side==='in'?0:s.w), y: n.y + GRID*(1+i) + PORT_PAD };
 }
 /* a wire that does not travel strictly left-to-right is a feedback wire:
    it carries the PREVIOUS scan's value. Because every forward wire strictly

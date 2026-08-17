@@ -1,3 +1,9 @@
+/* self-hosted (OFL-licensed, no CDN at runtime — this app needs to work
+   offline) — rounded/thin geometric monospace for block titles, the closest
+   available match to the line-font reference image. Only the weight
+   actually used (300) is downloaded. */
+@font-face{font-family:'Sono';font-style:normal;font-weight:300;font-display:swap;
+  src:url('../fonts/Sono-Light.woff2') format('woff2')}
 :root{
   --bg:#0e1116; --bg2:#151a21; --bg3:#1b222c; --line:#2a3340; --line2:#38445a;
   --fg:#dfe6f0; --fg2:#94a3b8; --acc:#4fa3ff; --acc2:#2b6fc2;
@@ -183,14 +189,15 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node .plabel{color:var(--ntxt);opacity:.7}
 .node .pfield input{background:#fff;border:calc(1px*var(--iz)) solid var(--ntitle);color:#1b1d20}
 .node .hd .ttl-edit{background:var(--ntitle);border:calc(1px*var(--iz)) solid #f2f3f5;color:#f2f3f5}
-/* line/outline font for the block's own name — the dominant, large-scale
-   text on the canvas, closest in role to the reference image. No literal
-   "OLF Mod B" font is embedded (that needs the actual font file, which
-   isn't something to fetch/guess at); this approximates the hollow-stroke
-   look with the existing monospace stack via -webkit-text-stroke, which
-   only works on FILLED (non-editable) text — the live rename <input>
-   (.ttl-edit, right above) stays solid for a normal editing caret/feel. */
-.node .hd .ttl{color:transparent;-webkit-text-stroke:1px #f2f3f5}
+/* the block's own name — the dominant, large-scale text on the canvas,
+   closest in role to the reference image — renders in Sono (thin/rounded
+   geometric monospace, self-hosted above) instead of the app's regular
+   --mono stack. Not "OLF Mod B" itself (that needs the literal font file);
+   this is a real filled typeface, not an outline effect, per the "not an
+   outline" correction. font-weight must stay 300 to match the one static
+   weight actually downloaded — anything else falls back to a faux-bold
+   synthesis of it, or off Sono entirely. */
+.node .hd .ttl{font-family:'Sono',var(--mono);font-weight:300}
 .node.auto .hd::after{content:'auto';font-size:8px;opacity:.7;margin-left:auto;padding-left:4px;font-weight:400;color:#f2f3f5}
 .node.vbox .port{opacity:0;pointer-events:none;transition:opacity .12s}
 .node.vbox:hover .port{opacity:1;pointer-events:auto}
