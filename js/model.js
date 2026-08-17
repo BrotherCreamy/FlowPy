@@ -150,10 +150,17 @@ def({id:'print',name:'PRINT',kind:'FB',group:'Debug',params:[P('label','str','x'
         self.p = x
         _log("%s = %s" % (label, x))`)});
 
-/* the junction a boolean wire turns into once it feeds more than one input —
-   see connect()/_wireUp() in editor.js. Not offered in the palette; it only
-   ever appears auto-created. */
-def({id:'wiretap',name:'•',kind:'F',hidden:true,group:'Logic',ins:[IO('x','bool')],outs:[IO('y','bool')],step:'return x'});
+/* connections are not 1:1 — a wire that feeds more than one input is its
+   own hidden node, and a boolean wire fed by more than one output is too
+   (OR'd together, hidden — not the visible OR block a user drags in on
+   purpose). Both are ordinary fixed-shape blocks, chained as many times as
+   needed (see attachConsumer()/collapseAutoNode() in editor.js) rather than
+   grown into a dynamic-arity block, so nothing else in the codegen/sim/
+   layout pipeline needs to know these are special. Not offered in the
+   palette; they only ever appear auto-created. */
+def({id:'netor',name:'•',kind:'F',hidden:true,group:'Logic',ins:[IO('a','bool'),IO('b','bool')],outs:[IO('q','bool')],step:'return bool(a) or bool(b)'});
+def({id:'wiretap',name:'•',kind:'F',hidden:true,group:'Logic',ins:[IO('x','bool')],outs:[IO('y','bool'),IO('y2','bool')],step:'return x, x'});
+def({id:'wiretap_num',name:'•',kind:'F',hidden:true,group:'Math',ins:[IO('x','num')],outs:[IO('y','num'),IO('y2','num')],step:'return x, x'});
 
 const BUILTIN = {}; B.forEach(t=>BUILTIN[t.id]=t);
 

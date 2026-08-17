@@ -176,63 +176,86 @@ function parsePts(d){
   const pts=[]; for(let i=0;i<nums.length;i+=2) pts.push({x:nums[i],y:nums[i+1]});
   return pts;
 }
-/* ---- lane offsets: whenever two different wires' routes coincide for a
-   stretch — because they share a source port (the port's own pixel sits
+/* ---- lane offsets: whenever two different wires' routes run collinear for
+   a stretch — because they share a source port (the port's own pixel sits
    inside the node's obstacle box, so every route nudges one grid unit clear
    of it before anything else is decided, and two wires doing that from the
-   same point land on the same cells) or just because the solver happened to
-   pick the same corridor independently — nudge each of the coinciding wires
-   a few px to either side so the picture reads as separate parallel wires,
-   never one drawn on top of another. Only the actually-contested cells
-   move; anywhere a wire runs alone it stays exactly on-grid. This replaces
-   an earlier junction-dot marker for the shared-port case — the user wanted
-   wires kept visually apart even when they *do* connect, not explained away
-   with a symbol. */
-const LANEPX=3;
-function cellWalk(pts){
-  const cells=[pts[0]];
+   same point land on the same line) or just because the solver happened to
+   pick the same corridor independently — the whole straight shaft that's in
+   conflict moves a full grid unit to one side, not just the pixels where it
+   happens to coincide: a partial, mid-shaft nudge would read as a rendering
+   glitch, a whole-shaft jog at a grid unit reads as a deliberate lane. The
+   segment right at a real port is never moved, so every wire still visibly
+   lands exactly on the port it's drawn from. This replaced an earlier
+   junction-dot marker for the shared-port case — the user wanted wires kept
+   visually apart even when they *do* connect, not explained away with a
+   symbol — and a still-earlier sub-pixel version of this same idea, which
+   only offset the exact contested cells and moved by a few px instead of a
+   full grid step. */
+const LANESTEP=GRID;
+function segsOf(wireId){
+  const d=ROUTES[wireId]; if(!d) return [];
+  const pts=parsePts(d), segs=[];
   for(let i=0;i<pts.length-1;i++){
     const a=pts[i], b=pts[i+1];
-    const sx=Math.sign(b.x-a.x)*GRID, sy=Math.sign(b.y-a.y)*GRID;
-    let x=a.x,y=a.y,guard=0;
-    while((x!==b.x||y!==b.y)&&guard++<3000){ x+=sx; y+=sy; cells.push({x,y}); }
+    if(a.x===b.x&&a.y===b.y) continue;
+    segs.push({segIdx:i,a,b,horiz:a.y===b.y});
   }
-  return cells;
+  return segs;
 }
-function edgeKey(a,b){
-  return (a.x<b.x||(a.x===b.x&&a.y<b.y)) ? a.x+','+a.y+'|'+b.x+','+b.y : b.x+','+b.y+'|'+a.x+','+a.y;
-}
+function segLine(s){ return s.horiz? 'h'+s.a.y : 'v'+s.a.x; }
+function segRange(s){ return s.horiz? [Math.min(s.a.x,s.b.x),Math.max(s.a.x,s.b.x)] : [Math.min(s.a.y,s.b.y),Math.max(s.a.y,s.b.y)]; }
 const VISPTS={};              // wireId -> lane-offset-adjusted, simplified point list
 function computeVisualPaths(g){
   for(const k in VISPTS) delete VISPTS[k];
-  const cellsByWire={};
-  for(const w of g.wires){
-    const d=ROUTES[w.id]; if(!d) continue;
-    cellsByWire[w.id]=cellWalk(parsePts(d));
+  const segsByWire={};
+  for(const w of g.wires) segsByWire[w.id]=segsOf(w.id);
+  /* only interior segments (not the one touching either real endpoint) are
+     ever eligible to move, so a wire always still visibly lands on its
+     actual ports. */
+  const byLine={};
+  for(const id in segsByWire){
+    const segs=segsByWire[id];
+    segs.forEach((s,i)=>{
+      if(i===0||i===segs.length-1) return;
+      (byLine[segLine(s)]=byLine[segLine(s)]||[]).push({wireId:id,seg:s});
+    });
   }
-  const edgeWires={};
-  for(const id in cellsByWire){
-    const cells=cellsByWire[id];
-    for(let i=0;i<cells.length-1;i++){
-      const k=edgeKey(cells[i],cells[i+1]);
-      (edgeWires[k]=edgeWires[k]||new Set()).add(id);
+  const offsetOf={};   // wireId -> segIdx -> px offset
+  for(const line in byLine){
+    const entries=byLine[line];
+    if(entries.length<2) continue;
+    /* union-find: any two DIFFERENT wires whose ranges on this line overlap
+       land in the same group, transitively — three wires that overlap in a
+       staggered chain (A-B, B-C, no direct A-C) still need to be told apart
+       from each other, not just from their immediate neighbour. */
+    const parent=entries.map((_,i)=>i);
+    const find=x=>{ while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; };
+    for(let i=0;i<entries.length;i++) for(let j=i+1;j<entries.length;j++){
+      if(entries[i].wireId===entries[j].wireId) continue;
+      const [a0,a1]=segRange(entries[i].seg), [b0,b1]=segRange(entries[j].seg);
+      if(Math.max(a0,b0)<Math.min(a1,b1)){ const ri=find(i), rj=find(j); if(ri!==rj) parent[ri]=rj; }
+    }
+    const groups={};
+    entries.forEach((e,i)=>{ const r=find(i); (groups[r]=groups[r]||[]).push(e); });
+    for(const gk in groups){
+      const group=groups[gk];
+      const wireIds=[...new Set(group.map(e=>e.wireId))].sort();
+      if(wireIds.length<2) continue;      // everything here belongs to one wire — no conflict, nothing to move
+      for(const e of group){
+        const lane=wireIds.indexOf(e.wireId)-(wireIds.length-1)/2;
+        (offsetOf[e.wireId]=offsetOf[e.wireId]||{})[e.seg.segIdx]=lane*LANESTEP;
+      }
     }
   }
-  for(const id in cellsByWire){
-    const cells=cellsByWire[id];
-    if(cells.length<2){ VISPTS[id]=cells; continue; }
-    const out=[];
-    for(let i=0;i<cells.length-1;i++){
-      const a=cells[i], b=cells[i+1];
-      const ids=edgeWires[edgeKey(a,b)];
-      let off=0;
-      if(ids.size>1){
-        const arr=[...ids].sort();
-        off=(arr.indexOf(id)-(arr.length-1)/2)*LANEPX;
-      }
-      const horiz=a.y===b.y;
-      out.push(horiz?{x:a.x,y:a.y+off}:{x:a.x+off,y:a.y});
-      out.push(horiz?{x:b.x,y:b.y+off}:{x:b.x+off,y:b.y});
+  for(const id in segsByWire){
+    const segs=segsByWire[id];
+    if(!segs.length){ VISPTS[id]=ROUTES[id]?parsePts(ROUTES[id]):[]; continue; }
+    const wOff=offsetOf[id]||{}, out=[];
+    for(const s of segs){
+      const off=wOff[s.segIdx]||0;
+      out.push(s.horiz?{x:s.a.x,y:s.a.y+off}:{x:s.a.x+off,y:s.a.y});
+      out.push(s.horiz?{x:s.b.x,y:s.b.y+off}:{x:s.b.x+off,y:s.b.y});
     }
     VISPTS[id]=simplify(out);
   }

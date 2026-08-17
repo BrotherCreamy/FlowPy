@@ -409,11 +409,21 @@ function delSelection(){
    chain) reads back-to-front — the only thing that connection could mean is
    feedback (right-to-left, z⁻¹) — so it becomes that automatically; otherwise
    it's a same-scan forward wire. There is no way to force one or the other.
-   Connecting a second wire onto an input that's already fed doesn't replace the
-   first one: a small merge block (OR for booleans, ADD for numbers) is spliced
-   in automatically, so both signals still reach the input. A third wire chains
-   another merge block off the first, and so on. */
-function mergeKindFor(portType){ return portType==='bool'?'or' : portType==='num'?'add' : null; }
+
+   Connections are not 1:1 — a wire is its own hidden node the moment it's
+   anything other than one output feeding one input:
+     - a boolean input fed by more than one output gets a hidden OR (netor),
+       chained pairwise for 3+ sources exactly like a numeric input fed by
+       more than one output gets a hidden ADD (unchanged, still the only
+       non-boolean case that merges multiple *sources*);
+     - a boolean OR numeric output feeding more than one input gets a hidden
+       tap (wiretap / wiretap_num) spliced in right after it, chained for
+       3+ consumers — each tap is a fixed 1-in-2-out passthrough (y, y2), so
+       every consumer lands on its own real port instead of sharing a pixel
+       with any other wire's start, and the diagram's ordinary grid-spaced
+       port layout is what actually keeps them apart, not a rendering trick. */
+function mergeKindFor(portType){ return portType==='bool'?'netor' : portType==='num'?'add' : null; }
+function tapKindFor(portType){ return portType==='bool'?'wiretap' : portType==='num'?'wiretap_num' : null; }
 function connect(fn,fi,tn,ti){
   const g=G();
   if(fn===tn) return;
@@ -441,43 +451,42 @@ function connect(fn,fi,tn,ti){
   _wireUp(g,fn,fi,tn,ti);
   renderGraph(); markDirty();
 }
-/* a boolean wire that ends up feeding more than one input turns into a
-   junction: an auto-inserted, otherwise-invisible 'wiretap' passthrough
-   block right after the source, wired once (src -> tap), with every
-   consumer wired from the tap instead of the source directly. From the
-   user's side this means a boolean wire behaves like a node with its own
-   value — you can tap a second connection off an already-wired output (or
-   off the wire itself, see startWireTapDrag) and it just works, same as
-   fanning a variable out to several readers. Only booleans get this: it's
-   what the user asked for, and non-boolean fan-out (numeric, any) already
-   renders fine as independent routed wires with no shared value to name. */
 function _wireUp(g,fn,fi,tn,ti){
   const src=nodeById(fn);
   if(!src) return;
   const srcType=(portsOf(src).outs[fi]||{}).type;
-  if(srcType==='bool'){
-    const existing=g.wires.filter(w=>w.f[0]===fn&&w.f[1]===fi);
-    if(existing.some(w=>w.t[0]===tn&&w.t[1]===ti)) return;   // already wired exactly this way
-    if(existing.length===1){
-      const only=existing[0];
-      const onlyTarget=nodeById(only.t[0]);
-      if(onlyTarget&&onlyTarget.auto==='wiretap'){
-        _wireUpRaw(g,onlyTarget.id,0,tn,ti);
-        return;
-      }
-      const jt=typeOf('wiretap');
-      const j={id:uid('n'),k:'blk',type:'wiretap',auto:'wiretap',params:{}};
-      (jt.params||[]).forEach(p=>j.params[p.name]=p.def);
-      const srcIdx=g.nodes.findIndex(n=>n.id===fn);
-      g.nodes.splice(srcIdx+1,0,j);
-      g.wires=g.wires.filter(w=>w!==only);
-      _wireUpRaw(g,fn,fi,j.id,0);
-      _wireUpRaw(g,j.id,0,only.t[0],only.t[1]);
-      _wireUpRaw(g,j.id,0,tn,ti);
-      return;
-    }
-  }
+  const tapKind=tapKindFor(srcType);
+  if(tapKind){ attachConsumer(g,fn,fi,tn,ti,tapKind); return; }
   _wireUpRaw(g,fn,fi,tn,ti);
+}
+/* make fn,fi (logically) also feed tn,ti, growing a tap chain as needed.
+   fn,fi already has at most one outgoing wire by construction (every wire
+   into an input replaces whatever was there, and a tap's own two outputs
+   are the only place a "second" wire from the same origin is ever allowed)
+   so there's exactly one thing to check: nothing yet (wire it directly —
+   the common, no-tap-needed case), a real consumer already (insert a tap,
+   moving that consumer onto the tap's first output and the new one onto
+   its second), or an existing tap (recurse into its second output, which
+   is exactly the same question one link further down the chain). */
+function attachConsumer(g,fn,fi,tn,ti,tapKind){
+  const existing=g.wires.filter(w=>w.f[0]===fn&&w.f[1]===fi);
+  if(existing.some(w=>w.t[0]===tn&&w.t[1]===ti)) return;   // already wired exactly this way
+  if(existing.length===0){ _wireUpRaw(g,fn,fi,tn,ti); return; }
+  const only=existing[0];
+  const curTarget=nodeById(only.t[0]);
+  if(curTarget&&curTarget.auto===tapKind){
+    attachConsumer(g,curTarget.id,1,tn,ti,tapKind);
+    return;
+  }
+  const tt=typeOf(tapKind);
+  const tap={id:uid('n'),k:'blk',type:tapKind,auto:tapKind,params:{}};
+  (tt.params||[]).forEach(p=>tap.params[p.name]=p.def);
+  const srcIdx=g.nodes.findIndex(n=>n.id===fn);
+  g.nodes.splice(srcIdx+1,0,tap);
+  g.wires=g.wires.filter(w=>w!==only);
+  _wireUpRaw(g,fn,fi,tap.id,0);
+  _wireUpRaw(g,tap.id,0,only.t[0],only.t[1]);
+  _wireUpRaw(g,tap.id,1,tn,ti);
 }
 function _wireUpRaw(g,fn,fi,tn,ti){
   const src=nodeById(fn), dst=nodeById(tn);
@@ -494,15 +503,17 @@ function _wireUpRaw(g,fn,fi,tn,ti){
   w.back=forwardClosure(g,[tn]).has(fn);
   g.wires.push(w);
 }
-/* an auto node left with too little to do is pointless: a merge block (OR/
-   ADD) with one or zero remaining inputs, or a wiretap junction with one or
-   zero remaining outputs, collapses back to a plain direct wire (or vanishes
-   entirely if there's nothing left to connect), rather than leaving a stray
-   auto block with a dangling port. */
+/* an auto node left with too little to do is pointless: a merge block
+   (netor/ADD) with one or zero remaining inputs, or a tap with one or zero
+   remaining outputs, collapses back to a plain direct wire (or vanishes
+   entirely if there's nothing left to connect) rather than leaving a stray
+   auto block with a dangling port. For a tap this naturally shortens the
+   chain one link at a time — whichever specific tap lost a wire is the only
+   one that needs to look at itself. */
 function collapseAutoNode(g,nodeId){
   const n=g.nodes.find(x=>x.id===nodeId);
   if(!n||!n.auto) return;
-  if(n.auto==='wiretap'){
+  if(n.auto==='wiretap'||n.auto==='wiretap_num'){
     const outWires=g.wires.filter(w=>w.f[0]===nodeId);
     if(outWires.length>1) return;
     const inWires=g.wires.filter(w=>w.t[0]===nodeId);
