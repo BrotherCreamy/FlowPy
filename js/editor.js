@@ -340,9 +340,13 @@ function updateWires(fast){
     const p1=portPos(a,'out',w.f[1]), p2=portPos(b,'in',w.t[1]);
     const grp=wireg.querySelector(`g[data-id="${w.id}"]`); if(!grp) continue;
     const back = isBack(g,w);
-    const d = (!fast && ROUTES[w.id]) ? ROUTES[w.id] : quickPath(p1,p2,back);
-    grp.querySelector('.hit').setAttribute('d',d);
-    const path=grp.querySelector('.wire'); path.setAttribute('d',d);
+    const usingRoute = !fast && ROUTES[w.id];
+    const d = usingRoute ? ROUTES[w.id] : quickPath(p1,p2,back);
+    const hit=grp.querySelector('.hit'); hit.setAttribute('d',d);
+    /* the hit path keeps the continuous geometry (so hover/click/tap-drag
+       and the label midpoint below never land in a crossing gap); only the
+       visible stroke gets the "goes under" break. */
+    const path=grp.querySelector('.wire'); path.setAttribute('d', usingRoute?gappedD(w.id):d);
     const po=portsOf(a).outs[w.f[1]]; const ty=po?po.type:'any';
     const key=slotKey(w.f[0],w.f[1]);
     const has=(key in LIVE);
@@ -355,7 +359,7 @@ function updateWires(fast){
     const label = (back?'\u21ba z\u207b\u00b9':'') + (has&&showVals?(back?' ':'')+fmt(v):'');
     if(label){ tx.textContent=label;
       let mid={x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2};
-      try{ const L=path.getTotalLength(); if(L>0) mid=path.getPointAtLength(L*0.5); }catch(e){}
+      try{ const L=hit.getTotalLength(); if(L>0) mid=hit.getPointAtLength(L*0.5); }catch(e){}
       tx.setAttribute('x',mid.x); tx.setAttribute('y',mid.y-6);
       tx.setAttribute('class','wlabel'+(back?' backlabel':'')); tx.style.display=''; }
     else tx.style.display='none';

@@ -29,7 +29,15 @@ Heap.prototype.size=function(){ return this.a.length; };
 
 const DX=[GRID,0,-GRID,0], DY=[0,GRID,0,-GRID];   // 0:→ 1:↓ 2:← 3:↑
 
-function aStar(s,t,obs,used){
+/* two ways to weigh a cell another wire already used this pass: `hard`
+   forbids it outright (what actually keeps two routes from drawing on top
+   of each other), `soft` just taxes it (USEDCOST) so a route still gets
+   found even when every option is congested. routeWire() tries hard first
+   and only falls back to soft if that leaves no path at all — a hard-only
+   search that fails would otherwise drop straight to the naive quickPath,
+   which isn't congestion-aware at all and produces worse overlap than the
+   soft pass would have. */
+function aStar(s,t,obs,used,hard){
   const minX=Math.min(s.x,t.x)-PAD, maxX=Math.max(s.x,t.x)+PAD;
   const minY=Math.min(s.y,t.y)-PAD, maxY=Math.max(s.y,t.y)+PAD;
   const nx=(maxX-minX)/GRID+1, ny=(maxY-minY)/GRID+1;
@@ -46,8 +54,10 @@ function aStar(s,t,obs,used){
       const nx2=c.x+DX[d], ny2=c.y+DY[d];
       if(nx2<minX||nx2>maxX||ny2<minY||ny2>maxY) continue;
       if(blocked(obs,nx2,ny2)) continue;
+      const u=used[nx2+','+ny2]||0;
+      if(hard&&u) continue;
       const vert=(d===1||d===3);
-      const g=c.g+1+(d===c.d?0:TURN)+(used[nx2+','+ny2]||0)*USEDCOST
+      const g=c.g+1+(d===c.d?0:TURN)+(hard?0:u*USEDCOST)
               +(vert? LEFTBIAS*(nx2-minX)/(maxX-minX+GRID) : 0);   // keep vertical runs to the left
       const k=nx2+','+ny2+','+d;
       if(seen[k]!==undefined&&seen[k]<=g) continue;
@@ -142,20 +152,104 @@ function routeWire(graph,w,obs,used){
   if(!back){
     const dp=directPts(p1,p2);
     if(dp&&pathClear(dp,obs)&&pathClearOfWires(dp,used)){ markUsed(used,dp); return polyPath(dp); }
-    if(p2.x-p1.x<=2*GRID) return quickPath(p1,p2,false);
+    /* used to bail out to quickPath here whenever the two ports were close
+       together (p2.x-p1.x<=2*GRID) — but quickPath recomputes the exact same
+       direct geometry the congestion check above just rejected, so a busy
+       source port never actually got rerouted, just redrawn on top of
+       whatever was already there. Let it fall through to the real A* search
+       below instead; that still degrades to quickPath at the very end if
+       even A* can't find room, but only then. */
   }
   const s={x:p1.x+GRID,y:p1.y}, t={x:p2.x-GRID,y:p2.y};
   let pts=null;
-  if(!blocked(obs,s.x,s.y)&&!blocked(obs,t.x,t.y)) pts=aStar(s,t,obs,used);
+  if(!blocked(obs,s.x,s.y)&&!blocked(obs,t.x,t.y)){
+    pts=aStar(s,t,obs,used,true);
+    if(!pts) pts=aStar(s,t,obs,used,false);
+  }
   if(!pts) return quickPath(p1,p2,back);
   const full=simplify([p1,...pts,p2]);
   markUsed(used,full);
   return polyPath(full);
 }
+/* ---- crossings: the wire "going under" gets a small gap right where it
+   passes beneath the other, like a real wire dipping under one it doesn't
+   connect to. Crossing (not overlap — that's handled above) is two
+   perpendicular segments from different wires meeting at a single interior
+   point. Which one gets the gap doesn't need to mean anything, just be the
+   same every time the same pair crosses, so the picture doesn't flicker
+   between renders — comparing wire ids is a cheap, stable way to get that. */
+const GAPS={};               // wireId -> [{point:{x,y}, segIdx}]
+const HOPGAP=6;               // px pulled back on each side of a crossing
+function parsePts(d){
+  const nums=d.match(/-?\d+(\.\d+)?/g).map(Number);
+  const pts=[]; for(let i=0;i<nums.length;i+=2) pts.push({x:nums[i],y:nums[i+1]});
+  return pts;
+}
+function computeCrossingGaps(g){
+  for(const k in GAPS) delete GAPS[k];
+  const segsByWire={};
+  for(const w of g.wires){
+    const d=ROUTES[w.id]; if(!d) continue;
+    const pts=parsePts(d), segs=[];
+    for(let i=0;i<pts.length-1;i++){
+      const a=pts[i], b=pts[i+1];
+      if(a.x===b.x&&a.y===b.y) continue;
+      segs.push({segIdx:i,a,b,horiz:a.y===b.y});
+    }
+    segsByWire[w.id]=segs;
+  }
+  const ids=Object.keys(segsByWire);
+  for(let i=0;i<ids.length;i++) for(let j=i+1;j<ids.length;j++){
+    const wa=ids[i], wb=ids[j];
+    for(const sa of segsByWire[wa]) for(const sb of segsByWire[wb]){
+      if(sa.horiz===sb.horiz) continue;              // parallel segments cross along a run, not at a point — that's overlap, handled by the router itself
+      const h=sa.horiz?sa:sb, v=sa.horiz?sb:sa;
+      const hWire=sa.horiz?wa:wb, vWire=sa.horiz?wb:wa;
+      const hy=h.a.y, hx0=Math.min(h.a.x,h.b.x), hx1=Math.max(h.a.x,h.b.x);
+      const vx=v.a.x, vy0=Math.min(v.a.y,v.b.y), vy1=Math.max(v.a.y,v.b.y);
+      if(vx>hx0&&vx<hx1&&hy>vy0&&hy<vy1){             // strictly interior — a shared endpoint is a corner/port, not a crossing
+        const under=hWire<vWire?hWire:vWire;
+        const underSeg=under===hWire?h:v;
+        (GAPS[under]=GAPS[under]||[]).push({point:{x:vx,y:hy},segIdx:underSeg.segIdx});
+      }
+    }
+  }
+}
+/* the display path for a wire: same route, with a short gap cut into it at
+   each point it passes under another wire. Kept separate from ROUTES (the
+   real, continuous geometry) so hit-testing, length/midpoint math and value-
+   hover keep working off an unbroken path — only the visible stroke gets
+   the gaps. */
+function gappedD(wireId){
+  const d=ROUTES[wireId]; if(!d) return d;
+  const gapList=GAPS[wireId];
+  if(!gapList||!gapList.length) return d;
+  const pts=parsePts(d);
+  const bySeg={};
+  for(const gp of gapList) (bySeg[gp.segIdx]=bySeg[gp.segIdx]||[]).push(gp.point);
+  let out='M'+pts[0].x+','+pts[0].y;
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i], b=pts[i+1];
+    const here=bySeg[i];
+    if(!here||!here.length){ out+=' L'+b.x+','+b.y; continue; }
+    const segLen=Math.hypot(b.x-a.x,b.y-a.y);
+    const hg=Math.min(HOPGAP,segLen/3);
+    const ux=(b.x-a.x)/segLen, uy=(b.y-a.y)/segLen;
+    const along=p=>(p.x-a.x)*ux+(p.y-a.y)*uy;
+    here.sort((p,q)=>along(p)-along(q));
+    for(const p of here){
+      out+=' L'+(p.x-ux*hg)+','+(p.y-uy*hg);
+      out+=' M'+(p.x+ux*hg)+','+(p.y+uy*hg);
+    }
+    out+=' L'+b.x+','+b.y;
+  }
+  return out;
+}
 function rerouteAll(){
   const g=G(), obs=obstaclesOf(g), used={};
   const order=g.wires.slice().sort((x,y)=>wLen(g,x)-wLen(g,y));
   for(const w of order) ROUTES[w.id]=routeWire(g,w,obs,used);
+  computeCrossingGaps(g);
   updateWires();
 }
 function wLen(g,w){
