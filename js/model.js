@@ -310,6 +310,19 @@ function topoForwardOrder(graph){
   if(order.length<ids.length) for(const id of ids) if(!order.includes(id)) order.push(id);
   return order;
 }
+/* a source with more than one forward consumer needs more than MINGAP of
+   clearance after it: any consumer NOT on the source's own row pulls a wire
+   down (or up) through that gap on its way to wherever it's actually going,
+   and that wire needs a column of its own — one MINGAP only ever has room
+   for the single direct wire, so a second, unrelated wire that also has to
+   thread through the same gap (e.g. one heading to a different input of the
+   same-row consumer) ends up sharing a column with it, which reads as a
+   connection that isn't really there. One extra grid unit per additional
+   consumer keeps that from ever being forced. */
+function fanOutGapAfter(graph,s){
+  const n=graph.wires.filter(w=>w.f[0]===s.id&&!isBack(graph,w)).length;
+  return n>1 ? MINGAP+(n-1)*GRID : MINGAP;
+}
 function layoutX(graph){
   for(const id of topoForwardOrder(graph)){
     const n=graph.nodes.find(x=>x.id===id); if(!n) continue;
@@ -318,7 +331,7 @@ function layoutX(graph){
       if(w.t[0]!==id) continue;
       const s=graph.nodes.find(x=>x.id===w.f[0]); if(!s) continue;
       if(isBack(graph,w)) cap=Math.min(cap, portPos(s,'out',w.f[1]).x);         // stay left of the feedback source
-      else required=Math.max(required, portPos(s,'out',w.f[1]).x+MINGAP);      // exactly MINGAP clear, never more
+      else required=Math.max(required, portPos(s,'out',w.f[1]).x+fanOutGapAfter(graph,s));
     }
     if(required===-Infinity){
       if(n.k==='gin'||n.k==='gout') continue;             // graph-boundary pins keep their own placement
