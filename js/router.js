@@ -106,6 +106,25 @@ function pathClear(pts,obs){
   }
   return true;
 }
+/* the direct shortcut is purely geometric — two wires that share a source
+   port (a fan-out) compute the exact same shaft regardless of what else is
+   already routed there, so without this check they'd draw on top of each
+   other every time, not just in some unlucky edge case. Reject the shortcut
+   once anything is already using a cell along it; the caller then falls
+   through to the A* search below, which already treats used cells as
+   expensive rather than forbidden and spaces the two runs apart. */
+function pathClearOfWires(pts,used){
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i], b=pts[i+1];
+    const sx=Math.sign(b.x-a.x)*GRID, sy=Math.sign(b.y-a.y)*GRID;
+    let x=a.x, y=a.y, guard=0;
+    while((x!==b.x||y!==b.y)&&guard++<3000){
+      x+=sx; y+=sy;
+      if(used[x+','+y]) return false;
+    }
+  }
+  return true;
+}
 function quickPath(p1,p2,back){
   if(!back){
     const d=directPts(p1,p2);
@@ -132,7 +151,7 @@ function routeWire(graph,w,obs,used){
   const back=isBack(graph,w);
   if(!back){
     const dp=directPts(p1,p2);
-    if(dp&&pathClear(dp,obs)){ markUsed(used,dp); return polyPath(dp); }
+    if(dp&&pathClear(dp,obs)&&pathClearOfWires(dp,used)){ markUsed(used,dp); return polyPath(dp); }
     if(p2.x-p1.x<=2*GRID) return quickPath(p1,p2,false);
   }
   const s={x:p1.x+GRID,y:p1.y}, t={x:p2.x-GRID,y:p2.y};
