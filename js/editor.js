@@ -36,7 +36,11 @@ const nodeById = id => G().nodes.find(n=>n.id===id);
 function applyCam(){ world.style.transform=`translate(${cam.x}px,${cam.y}px) scale(${cam.z})`;
   const g=GRID*cam.z;
   cwrap.style.backgroundSize=g+'px '+g+'px, auto';
-  cwrap.style.backgroundPosition=cam.x+'px '+cam.y+'px, 0 0'; }
+  cwrap.style.backgroundPosition=cam.x+'px '+cam.y+'px, 0 0';
+  /* keeps every hairline (--iz-scaled outlines, and the crossing-gap length
+     in router.js) a constant screen size regardless of zoom — see the --iz
+     comment in css/style.css. */
+  document.documentElement.style.setProperty('--iz', String(1/cam.z)); }
 function toGraph(cx,cy){ const r=cwrap.getBoundingClientRect();
   return {x:(cx-r.left-cam.x)/cam.z, y:(cy-r.top-cam.y)/cam.z}; }
 
@@ -623,12 +627,19 @@ function mkTemp(){ const p=document.createElementNS(NS,'path');
 cwrap.addEventListener('wheel',e=>{ e.preventDefault();
   const r=cwrap.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
   const z=Math.max(.25,Math.min(2.5,cam.z*(e.deltaY<0?1.12:1/1.12)));
-  cam.x=mx-(mx-cam.x)*(z/cam.z); cam.y=my-(my-cam.y)*(z/cam.z); cam.z=z; applyCam(); },{passive:false});
+  cam.x=mx-(mx-cam.x)*(z/cam.z); cam.y=my-(my-cam.y)*(z/cam.z); cam.z=z; applyCam();
+  /* re-emit wire `d` strings so the crossing-gap length (graph-unit) tracks
+     the new zoom and still reads as a constant screen gap — cheap: no A*
+     pathfinding here, just regenerating strings from the already-computed
+     TRIMPTS/GAPS. */
+  updateWires(); },{passive:false});
 document.addEventListener('keydown',e=>{
   if(/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
   if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); delSelection(); }
   if(e.key==='Escape'){ selectOnly(null); }
   if((e.ctrlKey||e.metaKey)&&e.key==='s'){ e.preventDefault(); saveProject(); }
+  if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); }
+  if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||(e.shiftKey&&e.key.toLowerCase()==='z'))){ e.preventDefault(); redo(); }
 });
 
 /* ---------- breadcrumb / navigation ------------------------------- */
@@ -908,7 +919,32 @@ let statusBase='idle', statusKind='';
 function setStatus(t,k){ $('#statusTxt').textContent=t; const d=$('#dot'); d.className='dot'+(k?' '+k:''); }
 function setBase(t,k){ statusBase=t; statusKind=k||''; setStatus(t,k); }
 let dirty=false;
-function markDirty(){ dirty=true; try{ generate(); setStatus(statusBase,statusKind); }catch(e){ setStatus('codegen: '+e.message,'err'); }
+/* ---------- undo/redo ------------------------------------------------
+   P_ is the whole project (let-bound, reassignable — see model.js) so a
+   snapshot is just its serialized form; restoring is just parsing one back
+   in. markDirty() already runs after every discrete mutation in the app
+   (a blur, a click, a drop — never per-keystroke or per-drag-frame), so
+   hooking the snapshot there gives exactly one history entry per user
+   action for free, with no separate bookkeeping at each call site. */
+let HIST=[], HISTI=-1, HISTMAX=200, histSuspend=false;
+function histSnapshot(){
+  if(histSuspend) return;
+  const s=JSON.stringify(P_);
+  if(HISTI>=0&&HIST[HISTI]===s) return;      // no actual change — don't grow the stack
+  HIST=HIST.slice(0,HISTI+1); HIST.push(s); HISTI++;
+  if(HIST.length>HISTMAX){ HIST.shift(); HISTI--; }
+}
+function histRestore(json){
+  histSuspend=true;                          // markDirty() below must not re-snapshot what we're restoring
+  P_=JSON.parse(json);
+  view={stack:[]};
+  renderPalette(); renderGraph(); selectOnly(null);
+  markDirty();
+  histSuspend=false;
+}
+function undo(){ if(HISTI<=0) return; HISTI--; histRestore(HIST[HISTI]); }
+function redo(){ if(HISTI>=HIST.length-1) return; HISTI++; histRestore(HIST[HISTI]); }
+function markDirty(){ dirty=true; histSnapshot(); try{ generate(); setStatus(statusBase,statusKind); }catch(e){ setStatus('codegen: '+e.message,'err'); }
   if(TAB==='code') renderCode(); if(TAB==='vars') renderVars(); }
 function dl(name,txt,mime){ const b=new Blob([txt],{type:mime||'text/plain'}); const u=URL.createObjectURL(b);
   const a=el('a',{href:u,download:name}); document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),1000); }

@@ -259,6 +259,7 @@ function loadProject(obj){
   let mx=0; const scan=g=>g&&g.nodes&&g.nodes.forEach(n=>{const m=+String(n.id).slice(1); if(m>mx)mx=m;});
   scan(P_.main); Object.values(P_.types).forEach(t=>{scan(t.graph); const m=+String(t.id).slice(1); if(m>mx)mx=m;});
   _uid=mx+1; view={stack:[]}; sel={nodes:new Set(),wires:new Set()}; LIVE={}; RANGE={};
+  HIST=[]; HISTI=-1;    // a freshly loaded project starts its own undo history, not the old one's
   snapProject(P_); tagProject(P_); renderPalette(); renderGraph(); markDirty();
 }
 $('#bSave').onclick=saveProject;

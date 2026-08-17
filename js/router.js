@@ -399,8 +399,13 @@ const GAPS={};                // wireId -> [{point:{x,y}, segIdx}] (segIdx into 
    to one end of a short segment — e.g. right where the "under" wire is
    about to turn into the port of a block it's running alongside. A wider
    gap could eat the whole short side and look like the wire just stopped
-   instead of visibly passing under and re-emerging. */
-const HOPGAP=3;                // px pulled back on each side of a crossing
+   instead of visibly passing under and re-emerging.
+   This is a target SCREEN size, not a graph-unit one — the gap is a literal
+   break in path geometry (not a stroke property vector-effect can fix), so
+   staying "intelligible at any scale" means converting it through the live
+   zoom (cam.z, from editor.js) every time a path string is built, in
+   gappedD() below. */
+const HOPGAP_SCREEN_PX=3;      // desired gap width on screen, regardless of zoom
 function computeCrossingGaps(g){
   for(const k in GAPS) delete GAPS[k];
   const segsByWire={};
@@ -453,7 +458,8 @@ function gappedD(wireId){
     const here=bySeg[i-1];
     if(!here||!here.length){ out+=' L'+b.x+','+b.y; prev=cur; continue; }
     const segLen=Math.hypot(b.x-a.x,b.y-a.y);
-    const hg=Math.min(HOPGAP,segLen/3);
+    const hopgap=HOPGAP_SCREEN_PX/(cam&&cam.z?cam.z:1);
+    const hg=Math.min(hopgap,segLen/3);
     const ux=(b.x-a.x)/segLen, uy=(b.y-a.y)/segLen;
     const along=q=>(q.x-a.x)*ux+(q.y-a.y)*uy;
     here.sort((q,r)=>along(q)-along(r));
