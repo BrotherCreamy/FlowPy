@@ -67,9 +67,9 @@ label{font-size:11px;color:var(--fg2)}
 .node.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc),0 3px 16px rgba(79,163,255,.3)}
 .node.moving{outline:1px dashed rgba(79,163,255,.7);outline-offset:3px}
 .node.err{border-color:var(--err)}
-.node .hd{height:20px;display:flex;align-items:center;gap:5px;padding:0 6px;border-radius:6px 6px 0 0;font-size:11.5px;
-  background:linear-gradient(#232c39,#1b222c);border-bottom:1px solid var(--line);cursor:move;font-weight:600;overflow:hidden}
-.node .hd .badge{font:9px/1 var(--mono);padding:2px 3px;border-radius:3px;border:1px solid;flex:0 0 auto}
+.node .hd{height:20px;display:flex;align-items:center;gap:5px;padding:0 6px;border-radius:6px 6px 0 0;font-size:14px;
+  line-height:1;background:linear-gradient(#232c39,#1b222c);border-bottom:1px solid var(--line);cursor:move;font-weight:600;overflow:hidden}
+.node .hd .badge{font:10px/1 var(--mono);padding:2px 3px;border-radius:3px;border:1px solid;flex:0 0 auto}
 .node .hd .ttl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;cursor:text}
 .node .hd .ttl:hover{text-decoration:underline dotted}
 .node .hd .ttl-edit{flex:1;width:0;min-width:0;height:16px;padding:0 2px;font:inherit;font-weight:600}
@@ -84,7 +84,7 @@ label{font-size:11px;color:var(--fg2)}
 .port{position:absolute;width:11px;height:11px;border-radius:50%;background:#0b0e13;border:2px solid var(--line2);cursor:crosshair;z-index:2}
 .port:hover,.port.tgt{border-color:var(--acc);background:var(--acc);box-shadow:0 0 8px var(--acc)}
 .port.bool{border-radius:2px}
-.plabel{position:absolute;font-size:11px;color:var(--fg2);white-space:nowrap;pointer-events:none}
+.plabel{position:absolute;font-size:13px;line-height:1;color:var(--fg2);white-space:nowrap;pointer-events:none}
 .node .val{position:absolute;right:6px;font:10px/1 var(--mono);color:var(--fg2)}
 .node .pfield{position:absolute;left:6px;right:6px;height:18px}
 .node .pfield input{width:100%;height:18px;padding:0 4px;font:11px/1 var(--mono)}

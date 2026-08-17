@@ -207,10 +207,10 @@ function nodeKindClass(n){
 function hasField(n){ return n.k==='const'; }
 function nodeSize(n){
   const p=portsOf(n), rows=Math.max(p.ins.length,p.outs.length,1);
-  let w = n.w || Math.max(120, nodeTitle(n).length*7.6+54);
+  let w = n.w || Math.max(120, nodeTitle(n).length*9.5+54);
   if(n.k==='blk'){ const t=typeOf(n.type);
-    const lw = Math.max(...p.ins.map(x=>x.name.length),0)*6.5, rw=Math.max(...p.outs.map(x=>x.name.length),0)*6.5;
-    w = Math.max(w, lw+rw+62, (t?t.name.length:4)*7.6+54); }
+    const lw = Math.max(...p.ins.map(x=>x.name.length),0)*7.8, rw=Math.max(...p.outs.map(x=>x.name.length),0)*7.8;
+    w = Math.max(w, lw+rw+62, (t?t.name.length:4)*9.5+54); }
   w = Math.ceil(w/GRID)*GRID;                       // width is a whole number of cells
   let h = GRID*(rows+2);                            // header cell + one cell per port row + margin
   if(hasField(n)) h += GRID;
