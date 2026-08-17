@@ -307,24 +307,33 @@ function demoProject(){
 
   /* main diagram */
   const g=p.main;
+  /* built through the same _wireUp() the interactive UI uses (P_ is already
+     the demo project here, view.stack is still empty, so G() resolves to
+     this exact g) — not the raw W_() helper — so any fan-out among these
+     hand-placed wires gets the same hidden-tap treatment a user connecting
+     them by hand would get, and direction is decided the same way too:
+     by reachability through what's already wired, never stated by hand.
+     ec.graph below stays on W_() since G() can't be pointed at a sub-type's
+     graph from here, and none of its wires fan out anyway. */
+  const C_=(a,ai,b,bi)=>_wireUp(g,a.id,ai,b.id,bi);
   const bl=blk(g,'blink',40,40,{period_ms:600});
   const po=blk(g,'pin_out',430,40,{pin:2});
-  W_(g,bl,0,po,0);
+  C_(bl,0,po,0);
 
   const btn=blk(g,'pin_in',40,150,{pin:0,pull_up:true,invert:true});
   const eco=blk(g,ec.id,250,150);
   const vs =N(g,'var',{x:470,y:150,varName:'presses'});
-  W_(g,btn,0,eco,0); W_(g,eco,0,vs,0);
+  C_(btn,0,eco,0); C_(eco,0,vs,0);
 
   const ad=blk(g,'adc',40,260,{pin:34});
   const fl=blk(g,'ema',210,260,{alpha:0.15});
   const pc=blk(g,pct.id,400,260);
   const vl=N(g,'var',{x:560,y:260,varName:'level'});
-  W_(g,ad,0,fl,0); W_(g,fl,0,pc,0); W_(g,pc,0,vl,0);
+  C_(ad,0,fl,0); C_(fl,0,pc,0); C_(pc,0,vl,0);
 
   const sc=blk(g,'hyst',400,360,{lo:0.35,hi:0.65});
   const pr=blk(g,'print',640,360,{label:'threshold',on_change:true});
-  W_(g,fl,0,sc,0); W_(g,sc,0,pr,0);
+  C_(fl,0,sc,0); C_(sc,0,pr,0);
 
   /* feedback demo: the compare wires BACK into the counter's reset (right-to-left = next scan) */
   const bk=blk(g,'blink',40,560,{period_ms:200});
@@ -332,8 +341,8 @@ function demoProject(){
   const k4=N(g,'const',{x:240,y:680,value:4,vtype:'num'});
   const cmp=blk(g,'gt',460,560);
   const pr2=blk(g,'print',680,560,{label:'ramp',on_change:true});
-  W_(g,bk,0,ct,0); W_(g,ct,0,cmp,0); W_(g,k4,0,cmp,1); W_(g,ct,0,pr2,0);
-  W_(g,cmp,0,ct,1,true);                  // <- the one deliberate feedback wire
+  C_(bk,0,ct,0); C_(ct,0,cmp,0); C_(k4,0,cmp,1); C_(ct,0,pr2,0);
+  C_(cmp,0,ct,1);                         // the one feedback wire — closes a loop through ct->cmp, so _wireUp classifies it back on its own
 
   snapProject(p); tagProject(p);
   P_=P0;
