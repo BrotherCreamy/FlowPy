@@ -150,6 +150,11 @@ def({id:'print',name:'PRINT',kind:'FB',group:'Debug',params:[P('label','str','x'
         self.p = x
         _log("%s = %s" % (label, x))`)});
 
+/* the junction a boolean wire turns into once it feeds more than one input —
+   see connect()/_wireUp() in editor.js. Not offered in the palette; it only
+   ever appears auto-created. */
+def({id:'wiretap',name:'•',kind:'F',hidden:true,group:'Logic',ins:[IO('x','bool')],outs:[IO('y','bool')],step:'return x'});
+
 const BUILTIN = {}; B.forEach(t=>BUILTIN[t.id]=t);
 
 /* ---------- project ---------------------------------------------- */

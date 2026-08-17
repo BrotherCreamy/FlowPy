@@ -69,21 +69,11 @@ function simplify(pts){
   o.push(pts[pts.length-1]);
   return o;
 }
-/* every corner becomes a 45 degree cut, half a unit by half a unit:
-   stub -> chamfer -> shaft -> chamfer -> stub */
-const CHAMF=GRID/2;
+/* sharp right-angle corners — no 45-degree chamfer. Wires are node-like now
+   (see the wiretap junction in editor.js), so a corner is just a corner, not
+   a visual cue about connection shape. */
 function polyPath(pts){
-  if(pts.length<3) return 'M'+pts.map(p=>p.x+','+p.y).join(' L');
-  let d='M'+pts[0].x+','+pts[0].y;
-  for(let i=1;i<pts.length-1;i++){
-    const a=pts[i-1], b=pts[i], c=pts[i+1];
-    const l1=Math.hypot(b.x-a.x,b.y-a.y), l2=Math.hypot(c.x-b.x,c.y-b.y);
-    const k1=Math.min(CHAMF,l1/2)/(l1||1), k2=Math.min(CHAMF,l2/2)/(l2||1);
-    d+=' L'+(b.x+(a.x-b.x)*k1)+','+(b.y+(a.y-b.y)*k1);
-    d+=' L'+(b.x+(c.x-b.x)*k2)+','+(b.y+(c.y-b.y)*k2);
-  }
-  const e=pts[pts.length-1];
-  return d+' L'+e.x+','+e.y;
+  return 'M'+pts.map(p=>p.x+','+p.y).join(' L');
 }
 /* the canonical forward route: vertical shaft pushed as far left as it goes,
    one unit clear of the output port */

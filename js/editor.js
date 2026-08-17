@@ -44,7 +44,8 @@ function toGraph(cx,cy){ const r=cwrap.getBoundingClientRect();
 function renderPalette(){
   const pal=$('#pal'); pal.innerHTML='';
   const groups={};
-  for(const t of Object.values(allTypes())){ const g=t.builtin?(t.group||'Misc'):'User blocks';
+  for(const t of Object.values(allTypes())){ if(t.hidden) continue;
+    const g=t.builtin?(t.group||'Misc'):'User blocks';
     (groups[g]=groups[g]||[]).push(t); }
   const order=['User blocks','Logic','Math','Time','I/O','Debug','Misc'];
   // special nodes
@@ -227,7 +228,7 @@ function retypeBlock(n,newName){
     if(w.t[0]===n.id&&w.t[1]>=ni) return false;
     return true;
   });
-  g.nodes.filter(x=>x.auto).forEach(x=>collapseAutoMerge(g,x.id));
+  g.nodes.filter(x=>x.auto).forEach(x=>collapseAutoNode(g,x.id));
   renderPalette(); renderGraph(); markDirty();
 }
 function titleEl(n){
@@ -293,10 +294,43 @@ function buildWire(w){
   const g=document.createElementNS(NS,'g'); g.setAttribute('data-id',w.id);
   g.innerHTML=`<path class="hit"></path><path class="wire"></path><text class="wlabel" text-anchor="middle"></text>`;
   const hit=g.querySelector('.hit');
-  hit.addEventListener('mousedown',e=>{e.stopPropagation(); selectWire(w.id);});
+  hit.addEventListener('mousedown',e=>{e.stopPropagation(); startWireTapDrag(w.id,e);});
   hit.addEventListener('dblclick',e=>{e.stopPropagation(); delWire(w.id);});
   hookValueHover(hit,()=>slotKey(w.f[0],w.f[1]));
   return g;
+}
+/* a plain click on a wire selects it, same as before; moving the mouse
+   before release instead starts a brand-new connection from that wire's
+   true source — anywhere along the wire counts, not just the output port —
+   because with the wiretap junction (see _wireUp) a boolean wire's value is
+   just as available mid-run as at its endpoints, and this is how the user
+   taps a second connection off it. Sets the shared `drag` state and then
+   gets out of the way: the existing global mousemove/mouseup listeners
+   already know how to drive drag.type==='wire' from here, so the very next
+   real mousemove renders the temp path — a one-frame delay, imperceptible. */
+function startWireTapDrag(wireId,e){
+  const x0=e.clientX, y0=e.clientY;
+  let armed=true;
+  const mv=ev=>{
+    if(!armed) return;
+    if(Math.hypot(ev.clientX-x0,ev.clientY-y0)<4) return;
+    armed=false;
+    document.removeEventListener('mousemove',mv);
+    document.removeEventListener('mouseup',up);
+    const g=G();
+    const w=g.wires.find(x=>x.id===wireId); if(!w) return;
+    const src=nodeById(w.f[0]); if(!src) return;
+    const p=portPos(src,'out',w.f[1]);
+    const temp=mkTemp();
+    drag={type:'wire',node:w.f[0],idx:w.f[1],ax:p.x,ay:p.y,temp,rev:false};
+  };
+  const up=()=>{
+    document.removeEventListener('mousemove',mv);
+    document.removeEventListener('mouseup',up);
+    if(armed) selectWire(wireId);
+  };
+  document.addEventListener('mousemove',mv);
+  document.addEventListener('mouseup',up);
 }
 function slotKey(nodeId,port){ return nodeId+':'+port; }
 function updateWires(fast){
@@ -354,7 +388,7 @@ function delWire(id){
   const g=G();
   const w=g.wires.find(x=>x.id===id);
   g.wires=g.wires.filter(w=>w.id!==id);
-  if(w) collapseAutoMerge(g,w.t[0]);
+  if(w){ collapseAutoNode(g,w.t[0]); collapseAutoNode(g,w.f[0]); }
   renderGraph(); markDirty();
 }
 function delSelection(){
@@ -362,7 +396,7 @@ function delSelection(){
   const ids=[...sel.nodes].filter(id=>{const n=nodeById(id); return n && n.k!=='gin' && n.k!=='gout';});
   g.nodes=g.nodes.filter(n=>!ids.includes(n.id));
   g.wires=g.wires.filter(w=>!ids.includes(w.f[0])&&!ids.includes(w.t[0])&&!sel.wires.has(w.id));
-  g.nodes.filter(n=>n.auto).forEach(n=>collapseAutoMerge(g,n.id));
+  g.nodes.filter(n=>n.auto).forEach(n=>collapseAutoNode(g,n.id));
   selectOnly(null); renderGraph(); markDirty();
 }
 /* A wire's direction is never a choice the user makes — it's derived from the
@@ -403,7 +437,45 @@ function connect(fn,fi,tn,ti){
   _wireUp(g,fn,fi,tn,ti);
   renderGraph(); markDirty();
 }
+/* a boolean wire that ends up feeding more than one input turns into a
+   junction: an auto-inserted, otherwise-invisible 'wiretap' passthrough
+   block right after the source, wired once (src -> tap), with every
+   consumer wired from the tap instead of the source directly. From the
+   user's side this means a boolean wire behaves like a node with its own
+   value — you can tap a second connection off an already-wired output (or
+   off the wire itself, see startWireTapDrag) and it just works, same as
+   fanning a variable out to several readers. Only booleans get this: it's
+   what the user asked for, and non-boolean fan-out (numeric, any) already
+   renders fine as independent routed wires with no shared value to name. */
 function _wireUp(g,fn,fi,tn,ti){
+  const src=nodeById(fn);
+  if(!src) return;
+  const srcType=(portsOf(src).outs[fi]||{}).type;
+  if(srcType==='bool'){
+    const existing=g.wires.filter(w=>w.f[0]===fn&&w.f[1]===fi);
+    if(existing.some(w=>w.t[0]===tn&&w.t[1]===ti)) return;   // already wired exactly this way
+    if(existing.length===1){
+      const only=existing[0];
+      const onlyTarget=nodeById(only.t[0]);
+      if(onlyTarget&&onlyTarget.auto==='wiretap'){
+        _wireUpRaw(g,onlyTarget.id,0,tn,ti);
+        return;
+      }
+      const jt=typeOf('wiretap');
+      const j={id:uid('n'),k:'blk',type:'wiretap',auto:'wiretap',params:{}};
+      (jt.params||[]).forEach(p=>j.params[p.name]=p.def);
+      const srcIdx=g.nodes.findIndex(n=>n.id===fn);
+      g.nodes.splice(srcIdx+1,0,j);
+      g.wires=g.wires.filter(w=>w!==only);
+      _wireUpRaw(g,fn,fi,j.id,0);
+      _wireUpRaw(g,j.id,0,only.t[0],only.t[1]);
+      _wireUpRaw(g,j.id,0,tn,ti);
+      return;
+    }
+  }
+  _wireUpRaw(g,fn,fi,tn,ti);
+}
+function _wireUpRaw(g,fn,fi,tn,ti){
   const src=nodeById(fn), dst=nodeById(tn);
   if(!src||!dst) return;
   g.wires=g.wires.filter(w=>!(w.t[0]===tn&&w.t[1]===ti));   // one source per input
@@ -418,12 +490,26 @@ function _wireUp(g,fn,fi,tn,ti){
   w.back=forwardClosure(g,[tn]).has(fn);
   g.wires.push(w);
 }
-/* an auto-merge block left with one or zero inputs (its other source got
-   disconnected) is pointless — collapse it back to a plain wire, or remove it
-   entirely, rather than leaving a stray OR/ADD with a dangling input. */
-function collapseAutoMerge(g,nodeId){
+/* an auto node left with too little to do is pointless: a merge block (OR/
+   ADD) with one or zero remaining inputs, or a wiretap junction with one or
+   zero remaining outputs, collapses back to a plain direct wire (or vanishes
+   entirely if there's nothing left to connect), rather than leaving a stray
+   auto block with a dangling port. */
+function collapseAutoNode(g,nodeId){
   const n=g.nodes.find(x=>x.id===nodeId);
   if(!n||!n.auto) return;
+  if(n.auto==='wiretap'){
+    const outWires=g.wires.filter(w=>w.f[0]===nodeId);
+    if(outWires.length>1) return;
+    const inWires=g.wires.filter(w=>w.t[0]===nodeId);
+    g.nodes=g.nodes.filter(x=>x.id!==nodeId);
+    g.wires=g.wires.filter(w=>w.t[0]!==nodeId&&w.f[0]!==nodeId);
+    if(inWires.length===1&&outWires.length===1){
+      const src=inWires[0], dst=outWires[0];
+      _wireUp(g,src.f[0],src.f[1],dst.t[0],dst.t[1]);
+    }
+    return;
+  }
   const inWires=g.wires.filter(w=>w.t[0]===nodeId);
   if(inWires.length>1) return;
   const outWires=g.wires.filter(w=>w.f[0]===nodeId);
