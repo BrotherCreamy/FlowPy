@@ -335,6 +335,20 @@ function startWireTapDrag(wireId,e){
 function slotKey(nodeId,port){ return nodeId+':'+port; }
 function updateWires(fast){
   const g=G();
+  /* a small dot wherever two wires genuinely share a connection point (same
+     source port fanning out) — see computeJunctionDots() in router.js. Kept
+     as its own group so a plain renderGraph() rebuild (which wipes wireg)
+     naturally recreates it, while drag/value-only updates just refresh its
+     contents in place. */
+  let jg=wireg.querySelector('#jdots');
+  if(!jg){ jg=document.createElementNS(NS,'g'); jg.setAttribute('id','jdots'); wireg.append(jg); }
+  jg.innerHTML='';
+  for(const p of JUNCTIONS){
+    const c=document.createElementNS(NS,'circle');
+    c.setAttribute('cx',p.x); c.setAttribute('cy',p.y); c.setAttribute('r',3.5);
+    c.setAttribute('class','jdot');
+    jg.append(c);
+  }
   for(const w of g.wires){
     const a=nodeById(w.f[0]), b=nodeById(w.t[0]); if(!a||!b) continue;
     const p1=portPos(a,'out',w.f[1]), p2=portPos(b,'in',w.t[1]);

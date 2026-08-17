@@ -165,5 +165,6 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .wire{stroke:#fff;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:miter}
 .wire.back{stroke:#fff;stroke-dasharray:6 4}
 .wire.sel{stroke:#fff;stroke-width:2.5}
+.jdot{fill:#fff;pointer-events:none}
 .wlabel{fill:#fff;stroke:#14181f;stroke-width:3px}
 .wlabel.backlabel{fill:#fff}

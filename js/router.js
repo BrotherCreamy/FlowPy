@@ -245,11 +245,48 @@ function gappedD(wireId){
   }
   return out;
 }
+/* ---- junctions: two wires leaving the very same output port necessarily
+   share their first stub cell — the port's own pixel sits inside the source
+   node's obstacle box, so every route nudges one grid unit clear of it
+   before anything else gets decided, and two wires doing that from the same
+   point produce the same nudge. That's a real, honest fan-out (same signal,
+   same pin), not a routing failure, so instead of fighting it a small dot
+   marks where the paths actually stop coinciding and fork apart — same
+   convention as a schematic junction dot, and the natural counterpart to the
+   crossing gap above (gap = doesn't connect, dot = does). */
+const JUNCTIONS=[];          // [{x,y}]
+function computeJunctionDots(g){
+  JUNCTIONS.length=0;
+  const cellsByWire={};
+  for(const w of g.wires){
+    const d=ROUTES[w.id]; if(!d) continue;
+    const pts=parsePts(d), cells=[pts[0]];
+    for(let i=0;i<pts.length-1;i++){
+      const a=pts[i], b=pts[i+1];
+      const sx=Math.sign(b.x-a.x)*GRID, sy=Math.sign(b.y-a.y)*GRID;
+      let x=a.x,y=a.y,guard=0;
+      while((x!==b.x||y!==b.y)&&guard++<3000){ x+=sx; y+=sy; cells.push({x,y}); }
+    }
+    cellsByWire[w.id]=cells;
+  }
+  const ids=Object.keys(cellsByWire), seen=new Set();
+  for(let i=0;i<ids.length;i++) for(let j=i+1;j<ids.length;j++){
+    const ca=cellsByWire[ids[i]], cb=cellsByWire[ids[j]];
+    if(ca[0].x!==cb[0].x||ca[0].y!==cb[0].y) continue;   // only a shared start point counts as a fan-out
+    let k=0;
+    while(k<ca.length&&k<cb.length&&ca[k].x===cb[k].x&&ca[k].y===cb[k].y) k++;
+    if(k>1){
+      const p=ca[k-1], key=p.x+','+p.y;
+      if(!seen.has(key)){ seen.add(key); JUNCTIONS.push(p); }
+    }
+  }
+}
 function rerouteAll(){
   const g=G(), obs=obstaclesOf(g), used={};
   const order=g.wires.slice().sort((x,y)=>wLen(g,x)-wLen(g,y));
   for(const w of order) ROUTES[w.id]=routeWire(g,w,obs,used);
   computeCrossingGaps(g);
+  computeJunctionDots(g);
   updateWires();
 }
 function wLen(g,w){
