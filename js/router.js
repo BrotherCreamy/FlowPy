@@ -335,10 +335,15 @@ function computeVisualPaths(g){
    needed to change is the drawing: N independently-routed wires from the
    same port naturally retrace much of the same ground (they start at the
    same point and the router tends to find similar cheap paths), and drawing
-   all of it N times is what read as overlap. Only the FIRST wire (by id, so
-   it's stable across renders) to reach a given cell actually draws it —
-   every other wire in the group draws only the cells nothing else has
-   claimed yet, which is exactly its own branch off the shared trunk. */
+   all of it N times is what read as overlap. The wire with the longest
+   route claims cells first, so it owns the full extent of the shared
+   trunk; every shorter sibling then only draws the cells nothing else has
+   claimed yet, which is exactly its own short branch peeling off that
+   trunk. Claiming shortest-first instead (e.g. by wire id, arbitrary
+   relative to distance) can leave a short wire's stub as the "trunk" and
+   force a longer sibling to find its own way for the remaining distance,
+   which reads as an early, unmotivated split right after the source
+   instead of one long trunk with branches peeling off along its length. */
 const TRIMPTS={};             // wireId -> point list with {brk:true} run breaks; what's actually drawn
 function simplifyRuns(pts){
   const runs=[]; let cur=[];
@@ -358,7 +363,9 @@ function computeFanOutTrim(g){
   for(const key in bySource){
     const ids=bySource[key];
     if(ids.length<2){ TRIMPTS[ids[0]]=(VISPTS[ids[0]]||[]).slice(); continue; }
-    const sorted=ids.slice().sort();
+    const withLen=ids.map(id=>({id,len:cellWalk(VISPTS[id]||[]).length}));
+    withLen.sort((a,b)=>b.len-a.len || (a.id<b.id?-1:1));   // longest route first; id just breaks exact ties
+    const sorted=withLen.map(x=>x.id);
     const claimed=new Set();
     for(const id of sorted){
       const pts=VISPTS[id];

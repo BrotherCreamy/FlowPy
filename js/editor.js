@@ -461,7 +461,16 @@ function connect(fn,fi,tn,ti){
     if(!mergeKind){ toast('this input already has a connection — only boolean (→OR) or numeric (→ADD) inputs accept more than one wire'); return; }
     const exFn=existing.f[0], exFi=existing.f[1];
     const mt=typeOf(mergeKind);
-    const m={id:uid('n'),k:'blk',type:mergeKind,auto:mergeKind,params:{}};
+    const m={id:uid('n'),k:'blk',type:mergeKind,params:{}};
+    /* netor has no palette existence of its own (hidden:true) — it only
+       ever appears through this auto-merge path, so it keeps the auto
+       marker (tiny dot rendering, collapses away on its own once reduced
+       to one input). ADD is a real, ordinary palette block; auto-inserting
+       one here should look and behave exactly like dragging one in by
+       hand — no dashed border, no "auto" tag, and it doesn't disappear on
+       its own if a wire gets disconnected down to one input, same as any
+       other block wouldn't. */
+    if(mt.hidden) m.auto=mergeKind;
     (mt.params||[]).forEach(p=>m.params[p.name]=p.def);
     g.wires=g.wires.filter(w=>w!==existing);
     const afterSrc=g.nodes.findIndex(n=>n.id===exFn);
