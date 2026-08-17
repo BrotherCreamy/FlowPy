@@ -68,11 +68,11 @@ label{font-size:11px;color:var(--fg2)}
 .node.moving{outline:1px dashed rgba(79,163,255,.7);outline-offset:3px}
 .node.err{border-color:var(--err)}
 .node .hd{height:20px;display:flex;align-items:center;gap:5px;padding:0 6px;border-radius:6px 6px 0 0;font-size:14px;
-  line-height:1;background:linear-gradient(#232c39,#1b222c);border-bottom:1px solid var(--line);cursor:move;font-weight:600;overflow:hidden}
+  line-height:1;background:linear-gradient(#232c39,#1b222c);border-bottom:1px solid var(--line);cursor:move;font-weight:400;overflow:hidden}
 .node .hd .badge{font:10px/1 var(--mono);padding:2px 3px;border-radius:3px;border:1px solid;flex:0 0 auto}
 .node .hd .ttl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;cursor:text}
 .node .hd .ttl:hover{text-decoration:underline dotted}
-.node .hd .ttl-edit{flex:1;width:0;min-width:0;height:16px;padding:0 2px;font:inherit;font-weight:600}
+.node .hd .ttl-edit{flex:1;width:0;min-width:0;height:16px;padding:0 2px;font:inherit;font-weight:400}
 .node.auto{opacity:.88}
 .node.auto .hd::after{content:'auto';font-size:8px;opacity:.6;margin-left:auto;padding-left:4px;font-weight:400}
 .node.k-FB .hd .badge{color:#b9a6ff;border-color:#4b3a91;background:#1d1733}
@@ -141,14 +141,14 @@ pre.code{width:100%;font:11px/1.45 var(--mono);background:#0b0e13;border:1px sol
 button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 #crumb,#hint,.tabs .tab,#ghost .node{border-radius:0}
 
-/* ======= blocks: black fill, 1px white border, white tag line ======= */
-.node{background:#000;border:1px solid #fff;border-radius:0;box-shadow:none}
+/* ======= blocks: medium-grey fill, medium-grey border, medium-grey tag line ======= */
+.node{background:#6b6f76;border:1px solid #8c9096;border-radius:0;box-shadow:none}
 .node.sel{border-color:#fff;box-shadow:none;outline:1px solid #fff;outline-offset:3px}
 .node.moving{outline:1px dashed #fff;outline-offset:3px}
 .node.err{outline:1px solid var(--err);outline-offset:3px}
 .node .hd,
 .node.k-FB .hd,.node.k-F .hd,.node.k-io .hd,.node.k-var .hd,.node.k-const .hd{
-  background:#fff;color:#000;border-bottom:0;border-radius:0;font-weight:600;letter-spacing:.2px}
+  background:#9aa0a6;color:#000;border-bottom:0;border-radius:0;font-weight:400;letter-spacing:.2px}
 .node .hd .badge,
 .node.k-FB .hd .badge,.node.k-F .hd .badge{
   background:transparent;color:#000;border:1px solid #000;border-radius:0;font-weight:700}
