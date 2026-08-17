@@ -171,26 +171,89 @@ function routeWire(graph,w,obs,used){
   markUsed(used,full);
   return polyPath(full);
 }
-/* ---- crossings: the wire "going under" gets a small gap right where it
-   passes beneath the other, like a real wire dipping under one it doesn't
-   connect to. Crossing (not overlap — that's handled above) is two
-   perpendicular segments from different wires meeting at a single interior
-   point. Which one gets the gap doesn't need to mean anything, just be the
-   same every time the same pair crosses, so the picture doesn't flicker
-   between renders — comparing wire ids is a cheap, stable way to get that. */
-const GAPS={};               // wireId -> [{point:{x,y}, segIdx}]
-const HOPGAP=6;               // px pulled back on each side of a crossing
 function parsePts(d){
   const nums=d.match(/-?\d+(\.\d+)?/g).map(Number);
   const pts=[]; for(let i=0;i<nums.length;i+=2) pts.push({x:nums[i],y:nums[i+1]});
   return pts;
 }
+/* ---- lane offsets: whenever two different wires' routes coincide for a
+   stretch — because they share a source port (the port's own pixel sits
+   inside the node's obstacle box, so every route nudges one grid unit clear
+   of it before anything else is decided, and two wires doing that from the
+   same point land on the same cells) or just because the solver happened to
+   pick the same corridor independently — nudge each of the coinciding wires
+   a few px to either side so the picture reads as separate parallel wires,
+   never one drawn on top of another. Only the actually-contested cells
+   move; anywhere a wire runs alone it stays exactly on-grid. This replaces
+   an earlier junction-dot marker for the shared-port case — the user wanted
+   wires kept visually apart even when they *do* connect, not explained away
+   with a symbol. */
+const LANEPX=3;
+function cellWalk(pts){
+  const cells=[pts[0]];
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i], b=pts[i+1];
+    const sx=Math.sign(b.x-a.x)*GRID, sy=Math.sign(b.y-a.y)*GRID;
+    let x=a.x,y=a.y,guard=0;
+    while((x!==b.x||y!==b.y)&&guard++<3000){ x+=sx; y+=sy; cells.push({x,y}); }
+  }
+  return cells;
+}
+function edgeKey(a,b){
+  return (a.x<b.x||(a.x===b.x&&a.y<b.y)) ? a.x+','+a.y+'|'+b.x+','+b.y : b.x+','+b.y+'|'+a.x+','+a.y;
+}
+const VISPTS={};              // wireId -> lane-offset-adjusted, simplified point list
+function computeVisualPaths(g){
+  for(const k in VISPTS) delete VISPTS[k];
+  const cellsByWire={};
+  for(const w of g.wires){
+    const d=ROUTES[w.id]; if(!d) continue;
+    cellsByWire[w.id]=cellWalk(parsePts(d));
+  }
+  const edgeWires={};
+  for(const id in cellsByWire){
+    const cells=cellsByWire[id];
+    for(let i=0;i<cells.length-1;i++){
+      const k=edgeKey(cells[i],cells[i+1]);
+      (edgeWires[k]=edgeWires[k]||new Set()).add(id);
+    }
+  }
+  for(const id in cellsByWire){
+    const cells=cellsByWire[id];
+    if(cells.length<2){ VISPTS[id]=cells; continue; }
+    const out=[];
+    for(let i=0;i<cells.length-1;i++){
+      const a=cells[i], b=cells[i+1];
+      const ids=edgeWires[edgeKey(a,b)];
+      let off=0;
+      if(ids.size>1){
+        const arr=[...ids].sort();
+        off=(arr.indexOf(id)-(arr.length-1)/2)*LANEPX;
+      }
+      const horiz=a.y===b.y;
+      out.push(horiz?{x:a.x,y:a.y+off}:{x:a.x+off,y:a.y});
+      out.push(horiz?{x:b.x,y:b.y+off}:{x:b.x+off,y:b.y});
+    }
+    VISPTS[id]=simplify(out);
+  }
+}
+/* ---- crossings: the wire "going under" gets a small gap right where it
+   passes beneath the other, like a real wire dipping under one it doesn't
+   connect to. Crossing (not overlap/lane-sharing — that's handled above) is
+   two perpendicular segments from different wires meeting at a single
+   interior point. Which one gets the gap doesn't need to mean anything,
+   just be the same every time the same pair crosses, so the picture doesn't
+   flicker between renders — comparing wire ids is a cheap, stable way to
+   get that. Operates on the lane-offset VISPTS, not the raw grid ROUTES, so
+   a gap lands on the geometry actually being drawn. */
+const GAPS={};                // wireId -> [{point:{x,y}, segIdx}] (segIdx into VISPTS)
+const HOPGAP=6;                // px pulled back on each side of a crossing
 function computeCrossingGaps(g){
   for(const k in GAPS) delete GAPS[k];
   const segsByWire={};
   for(const w of g.wires){
-    const d=ROUTES[w.id]; if(!d) continue;
-    const pts=parsePts(d), segs=[];
+    const pts=VISPTS[w.id]; if(!pts) continue;
+    const segs=[];
     for(let i=0;i<pts.length-1;i++){
       const a=pts[i], b=pts[i+1];
       if(a.x===b.x&&a.y===b.y) continue;
@@ -202,7 +265,7 @@ function computeCrossingGaps(g){
   for(let i=0;i<ids.length;i++) for(let j=i+1;j<ids.length;j++){
     const wa=ids[i], wb=ids[j];
     for(const sa of segsByWire[wa]) for(const sb of segsByWire[wb]){
-      if(sa.horiz===sb.horiz) continue;              // parallel segments cross along a run, not at a point — that's overlap, handled by the router itself
+      if(sa.horiz===sb.horiz) continue;              // parallel segments running together are lane-offset above, not gapped
       const h=sa.horiz?sa:sb, v=sa.horiz?sb:sa;
       const hWire=sa.horiz?wa:wb, vWire=sa.horiz?wb:wa;
       const hy=h.a.y, hx0=Math.min(h.a.x,h.b.x), hx1=Math.max(h.a.x,h.b.x);
@@ -215,16 +278,15 @@ function computeCrossingGaps(g){
     }
   }
 }
-/* the display path for a wire: same route, with a short gap cut into it at
-   each point it passes under another wire. Kept separate from ROUTES (the
-   real, continuous geometry) so hit-testing, length/midpoint math and value-
-   hover keep working off an unbroken path — only the visible stroke gets
-   the gaps. */
+/* the display path for a wire: the lane-offset route, with a short gap cut
+   into it at each point it passes under another wire. Kept separate from
+   ROUTES (the real, continuous on-grid geometry) so hit-testing, length/
+   midpoint math and value-hover keep working off an unbroken, exact path —
+   only the visible stroke gets lane offsets and gaps. */
 function gappedD(wireId){
-  const d=ROUTES[wireId]; if(!d) return d;
+  const pts=VISPTS[wireId]; if(!pts) return ROUTES[wireId];
   const gapList=GAPS[wireId];
-  if(!gapList||!gapList.length) return d;
-  const pts=parsePts(d);
+  if(!gapList||!gapList.length) return 'M'+pts.map(p=>p.x+','+p.y).join(' L');
   const bySeg={};
   for(const gp of gapList) (bySeg[gp.segIdx]=bySeg[gp.segIdx]||[]).push(gp.point);
   let out='M'+pts[0].x+','+pts[0].y;
@@ -245,48 +307,12 @@ function gappedD(wireId){
   }
   return out;
 }
-/* ---- junctions: two wires leaving the very same output port necessarily
-   share their first stub cell — the port's own pixel sits inside the source
-   node's obstacle box, so every route nudges one grid unit clear of it
-   before anything else gets decided, and two wires doing that from the same
-   point produce the same nudge. That's a real, honest fan-out (same signal,
-   same pin), not a routing failure, so instead of fighting it a small dot
-   marks where the paths actually stop coinciding and fork apart — same
-   convention as a schematic junction dot, and the natural counterpart to the
-   crossing gap above (gap = doesn't connect, dot = does). */
-const JUNCTIONS=[];          // [{x,y}]
-function computeJunctionDots(g){
-  JUNCTIONS.length=0;
-  const cellsByWire={};
-  for(const w of g.wires){
-    const d=ROUTES[w.id]; if(!d) continue;
-    const pts=parsePts(d), cells=[pts[0]];
-    for(let i=0;i<pts.length-1;i++){
-      const a=pts[i], b=pts[i+1];
-      const sx=Math.sign(b.x-a.x)*GRID, sy=Math.sign(b.y-a.y)*GRID;
-      let x=a.x,y=a.y,guard=0;
-      while((x!==b.x||y!==b.y)&&guard++<3000){ x+=sx; y+=sy; cells.push({x,y}); }
-    }
-    cellsByWire[w.id]=cells;
-  }
-  const ids=Object.keys(cellsByWire), seen=new Set();
-  for(let i=0;i<ids.length;i++) for(let j=i+1;j<ids.length;j++){
-    const ca=cellsByWire[ids[i]], cb=cellsByWire[ids[j]];
-    if(ca[0].x!==cb[0].x||ca[0].y!==cb[0].y) continue;   // only a shared start point counts as a fan-out
-    let k=0;
-    while(k<ca.length&&k<cb.length&&ca[k].x===cb[k].x&&ca[k].y===cb[k].y) k++;
-    if(k>1){
-      const p=ca[k-1], key=p.x+','+p.y;
-      if(!seen.has(key)){ seen.add(key); JUNCTIONS.push(p); }
-    }
-  }
-}
 function rerouteAll(){
   const g=G(), obs=obstaclesOf(g), used={};
   const order=g.wires.slice().sort((x,y)=>wLen(g,x)-wLen(g,y));
   for(const w of order) ROUTES[w.id]=routeWire(g,w,obs,used);
+  computeVisualPaths(g);
   computeCrossingGaps(g);
-  computeJunctionDots(g);
   updateWires();
 }
 function wLen(g,w){

@@ -141,20 +141,21 @@ pre.code{width:100%;font:11px/1.45 var(--mono);background:#0b0e13;border:1px sol
 button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 #crumb,#hint,.tabs .tab,#ghost .node{border-radius:0}
 
-/* ======= blocks: medium-grey fill, medium-grey border, medium-grey tag line ======= */
+/* ======= blocks: body blends into the canvas, header is the only tinted area ======= */
 .node{background:#6b6f76;border:1px solid #8c9096;border-radius:0;box-shadow:none}
 .node.sel{border-color:#fff;box-shadow:none;outline:1px solid #fff;outline-offset:3px}
 .node.moving{outline:1px dashed #fff;outline-offset:3px}
 .node.err{outline:1px solid var(--err);outline-offset:3px}
+.node .body{background:#14181f}
 .node .hd,
 .node.k-FB .hd,.node.k-F .hd,.node.k-io .hd,.node.k-var .hd,.node.k-const .hd{
-  background:#9aa0a6;color:#000;border-bottom:0;border-radius:0;font-weight:400;letter-spacing:.2px}
+  background:#3a3f46;color:#fff;border:1px solid #565c64;border-radius:0;font-weight:400;letter-spacing:.2px}
 .node .hd .badge,
 .node.k-FB .hd .badge,.node.k-F .hd .badge{
-  background:transparent;color:#000;border:1px solid #000;border-radius:0;font-weight:700}
+  background:transparent;color:#fff;border:1px solid #fff;border-radius:0;font-weight:700}
 .node .plabel{color:#fff;opacity:.75}
 .node .pfield input{background:#000;border:1px solid #fff;color:#fff}
-.node .hd .ttl-edit{background:#fff;border:1px solid #000;color:#000}
+.node .hd .ttl-edit{background:#3a3f46;border:1px solid #565c64;color:#fff}
 .node.auto{border-style:dashed}
 .node.vbox .port{opacity:0;pointer-events:none;transition:opacity .12s}
 .node.vbox:hover .port{opacity:1;pointer-events:auto}
@@ -165,6 +166,5 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .wire{stroke:#fff;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:miter}
 .wire.back{stroke:#fff;stroke-dasharray:6 4}
 .wire.sel{stroke:#fff;stroke-width:2.5}
-.jdot{fill:#fff;pointer-events:none}
 .wlabel{fill:#fff;stroke:#14181f;stroke-width:3px}
 .wlabel.backlabel{fill:#fff}
