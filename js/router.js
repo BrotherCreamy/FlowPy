@@ -6,7 +6,24 @@
    route; turns are penalised so paths come out as long straight runs.
    ===================================================================== */
 const ROUTES={};            // wireId -> svg path string
-const TURN=4, USEDCOST=3, PAD=12*GRID, MAXCELLS=60000, LEFTBIAS=0.15;
+const TURN=4, USEDCOST=3, NEARCOST=0.3, PAD=12*GRID, MAXCELLS=240000, LEFTBIAS=0.15;
+/* RGRID: the A* search's actual step size, half of GRID. Ports sit
+   PORT_PAD (model.js, half a grid) off their own block's edge, but every
+   OTHER block's edges stay on the true, canonical GRID — a search that only
+   ever steps by a full GRID from a half-grid-off starting point can only
+   ever reach points that share its own phase, never the opposite one, so it
+   could never land exactly one real grid unit from an unrelated block's
+   edge (always some fixed fraction short or over, no matter how much room
+   was actually available). Stepping by RGRID instead reaches BOTH phases —
+   including the canonical, block-aligned points — so the search can find
+   the true shortest path with an exact, consistent one-grid clearance from
+   anything it isn't connecting to, same as it always could horizontally
+   (port x-positions were already exact GRID multiples; only port y ever
+   carried this offset). g-cost per step is 0.5 (half of what a full-GRID
+   step used to cost) so real distance is still weighted the same relative
+   to TURN/USEDCOST as before — only the resolution changed, not the
+   search's own preferences. */
+const RGRID=GRID/2;
 
 function obstaclesOf(graph){
   return graph.nodes.map(n=>{ const s=nodeSize(n);
@@ -15,6 +32,30 @@ function obstaclesOf(graph){
 function blocked(obs,x,y){
   for(let k=0;k<obs.length;k++){ const o=obs[k];
     if(x>=o.x0&&x<=o.x1&&y>=o.y0&&y<=o.y1) return true; }
+  return false;
+}
+/* true for a cell that's clear (not actually inside any obstacle — callers
+   only ever run this on cells blocked() already passed) but within one grid
+   unit of one, on any side. Used as a SOFT cost in aStar below, the same
+   hard/soft shape already used for wire congestion (used[]/USEDCOST): a
+   search that's simply forbidden from ever entering this margin would make
+   routing through a corridor exactly one grid unit wide (two blocks only
+   MINGAP/VGAP apart, which is also just one grid unit — see model.js)
+   impossible outright, since there'd be no legal cell left in it at all.
+   Taxing it instead means the search still PREFERS a full grid of daylight
+   whenever there's room to have it — which is what actually produces a
+   clean, consistent one-grid clearance in the common case — while still
+   finding a path (accepting the tighter squeeze) when a corridor genuinely
+   has no room to spare. */
+function nearBlocked(obs,x,y){
+  for(let k=0;k<obs.length;k++){ const o=obs[k];
+    /* strict inequalities: a cell sitting exactly GRID away from the edge —
+       the target distance itself — must NOT be taxed, or the search just
+       keeps pushing further out chasing a margin that keeps receding. Only
+       cells strictly closer than a full grid unit (and not already inside
+       the obstacle, which blocked() excludes before this ever runs) pay
+       the tax. */
+    if(x>o.x0-GRID&&x<o.x1+GRID&&y>o.y0-GRID&&y<o.y1+GRID) return true; }
   return false;
 }
 /* --- min-heap ------------------------------------------------------- */
@@ -27,7 +68,7 @@ Heap.prototype.pop=function(){ const a=this.a, top=a[0], last=a.pop();
   return top; };
 Heap.prototype.size=function(){ return this.a.length; };
 
-const DX=[GRID,0,-GRID,0], DY=[0,GRID,0,-GRID];   // 0:→ 1:↓ 2:← 3:↑
+const DX=[RGRID,0,-RGRID,0], DY=[0,RGRID,0,-RGRID];   // 0:→ 1:↓ 2:← 3:↑
 
 /* two ways to weigh a cell another wire already used this pass: `hard`
    forbids it outright (what actually keeps two routes from drawing on top
@@ -52,7 +93,7 @@ const DX=[GRID,0,-GRID,0], DY=[0,GRID,0,-GRID];   // 0:→ 1:↓ 2:← 3:↑
 function aStar(s,t,obs,used,hard,free){
   const minX=Math.min(s.x,t.x)-PAD, maxX=Math.max(s.x,t.x)+PAD;
   const minY=Math.min(s.y,t.y)-PAD, maxY=Math.max(s.y,t.y)+PAD;
-  const nx=(maxX-minX)/GRID+1, ny=(maxY-minY)/GRID+1;
+  const nx=(maxX-minX)/RGRID+1, ny=(maxY-minY)/RGRID+1;
   if(nx*ny>MAXCELLS) return null;
   const h=(x,y)=>(Math.abs(x-t.x)+Math.abs(y-t.y))/GRID;
   const seen={}, open=new Heap();
@@ -70,7 +111,7 @@ function aStar(s,t,obs,used,hard,free){
       const u=(free&&free.has(key))?0:(used[key]||0);
       if(hard&&u) continue;
       const vert=(d===1||d===3);
-      const g=c.g+1+(d===c.d?0:TURN)+(hard?0:u*USEDCOST)
+      const g=c.g+0.5+(d===c.d?0:TURN)+(hard?0:u*USEDCOST)+(nearBlocked(obs,nx2,ny2)?NEARCOST:0)
               +(vert? LEFTBIAS*(nx2-minX)/(maxX-minX+GRID) : 0);   // keep vertical runs to the left
       const k=key+','+d;
       if(seen[k]!==undefined&&seen[k]<=g) continue;
@@ -109,7 +150,7 @@ function directPts(p1,p2){
 function pathClear(pts,obs){
   for(let i=0;i<pts.length-1;i++){
     const a=pts[i], b=pts[i+1];
-    const sx=Math.sign(b.x-a.x)*GRID, sy=Math.sign(b.y-a.y)*GRID;
+    const sx=Math.sign(b.x-a.x)*RGRID, sy=Math.sign(b.y-a.y)*RGRID;
     let x=a.x, y=a.y, guard=0;
     while((x!==b.x||y!==b.y)&&guard++<3000){
       x+=sx; y+=sy;
@@ -129,7 +170,7 @@ function pathClear(pts,obs){
 function pathClearOfWires(pts,used,free){
   for(let i=0;i<pts.length-1;i++){
     const a=pts[i], b=pts[i+1];
-    const sx=Math.sign(b.x-a.x)*GRID, sy=Math.sign(b.y-a.y)*GRID;
+    const sx=Math.sign(b.x-a.x)*RGRID, sy=Math.sign(b.y-a.y)*RGRID;
     let x=a.x, y=a.y, guard=0;
     while((x!==b.x||y!==b.y)&&guard++<3000){
       x+=sx; y+=sy;
@@ -152,7 +193,7 @@ function quickPath(p1,p2,back){
 function markUsed(used,pts){
   for(let i=1;i<pts.length;i++){
     const a=pts[i-1], b=pts[i];
-    const sx=Math.sign(b.x-a.x)*GRID, sy=Math.sign(b.y-a.y)*GRID;
+    const sx=Math.sign(b.x-a.x)*RGRID, sy=Math.sign(b.y-a.y)*RGRID;
     let x=a.x, y=a.y, guard=0;
     while((x!==b.x||y!==b.y)&&guard++<4000){ used[x+','+y]=(used[x+','+y]||0)+1; x+=sx; y+=sy; }
     used[b.x+','+b.y]=(used[b.x+','+b.y]||0)+1;
@@ -195,7 +236,7 @@ function cellWalk(pts){
   const cells=[pts[0]];
   for(let i=0;i<pts.length-1;i++){
     const a=pts[i], b=pts[i+1];
-    const sx=Math.sign(b.x-a.x)*GRID, sy=Math.sign(b.y-a.y)*GRID;
+    const sx=Math.sign(b.x-a.x)*RGRID, sy=Math.sign(b.y-a.y)*RGRID;
     let x=a.x,y=a.y,guard=0;
     while((x!==b.x||y!==b.y)&&guard++<3000){ x+=sx; y+=sy; cells.push({x,y}); }
   }
@@ -239,7 +280,7 @@ function segLine(s){ return s.horiz? 'h'+s.a.y : 'v'+s.a.x; }
 function segRange(s){ return s.horiz? [Math.min(s.a.x,s.b.x),Math.max(s.a.x,s.b.x)] : [Math.min(s.a.y,s.b.y),Math.max(s.a.y,s.b.y)]; }
 function laneClear(horiz,coord,range,obs){
   const [r0,r1]=range;
-  for(let p=r0;p<=r1;p+=GRID){
+  for(let p=r0;p<=r1;p+=RGRID){
     if(blocked(obs, horiz?p:coord, horiz?coord:p)) return false;
   }
   return true;
