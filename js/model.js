@@ -187,10 +187,10 @@ function newType(kind){
 
 /* ---------- geometry (everything lives on the grid) --------------- */
 const GRID=20, HDR=GRID, ROW=GRID;
-const MINGAP=2*GRID;      // a downstream block sits at least two units clear of its source
+const MINGAP=GRID;        // a downstream block sits at least one unit clear of its source
 const LEFT_MARGIN=2*GRID; // every dataflow root (nothing forward-feeds it) aligns to this x — no free-floating starts
 const TOP_MARGIN=2*GRID;  // row 0 starts here
-const VGAP=2*GRID;        // vertical clearance between rows
+const VGAP=GRID;          // vertical clearance between rows
 const snap = v => Math.round(v/GRID)*GRID;
 function portsOf(n){
   if(n.k==='blk'){ const t=typeOf(n.type); if(!t) return {ins:[],outs:[]};
@@ -226,14 +226,19 @@ function nodeSize(n){
     const lw = Math.max(...p.ins.map(x=>x.name.length),0)*7.8, rw=Math.max(...p.outs.map(x=>x.name.length),0)*7.8;
     w = Math.max(w, lw+rw+62, (t?t.name.length:4)*9.5+54); }
   w = Math.ceil(w/GRID)*GRID;                       // width is a whole number of cells
-  let h = GRID*(rows+2);                            // header cell + one cell per port row + margin
+  let h = GRID*(rows+1);                            // header cell + one cell per port row, no extra margin — see portPos()
   if(hasField(n)) h += GRID;
   return {w,h};
 }
-/* port centres always land on a grid intersection */
+/* port centres always land on a grid intersection — required for the A*
+   router's cell-stepped pathfinding, so this offset can only ever move by a
+   whole GRID unit, never a fraction of one. The first port sits exactly one
+   grid unit down (immediately after the header's own one-grid-unit slot),
+   not two — the extra unit of empty margin above/below the port rows that
+   used to be here is gone; see nodeSize()'s matching h. */
 function portPos(n, side, i){
   const s=nodeSize(n);
-  return { x: n.x + (side==='in'?0:s.w), y: n.y + GRID*(2+i) };
+  return { x: n.x + (side==='in'?0:s.w), y: n.y + GRID*(1+i) };
 }
 /* a wire that does not travel strictly left-to-right is a feedback wire:
    it carries the PREVIOUS scan's value. Because every forward wire strictly

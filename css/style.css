@@ -183,6 +183,14 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node .plabel{color:var(--ntxt);opacity:.7}
 .node .pfield input{background:#fff;border:calc(1px*var(--iz)) solid var(--ntitle);color:#1b1d20}
 .node .hd .ttl-edit{background:var(--ntitle);border:calc(1px*var(--iz)) solid #f2f3f5;color:#f2f3f5}
+/* line/outline font for the block's own name — the dominant, large-scale
+   text on the canvas, closest in role to the reference image. No literal
+   "OLF Mod B" font is embedded (that needs the actual font file, which
+   isn't something to fetch/guess at); this approximates the hollow-stroke
+   look with the existing monospace stack via -webkit-text-stroke, which
+   only works on FILLED (non-editable) text — the live rename <input>
+   (.ttl-edit, right above) stays solid for a normal editing caret/feel. */
+.node .hd .ttl{color:transparent;-webkit-text-stroke:1px #f2f3f5}
 .node.auto .hd::after{content:'auto';font-size:8px;opacity:.7;margin-left:auto;padding-left:4px;font-weight:400;color:#f2f3f5}
 .node.vbox .port{opacity:0;pointer-events:none;transition:opacity .12s}
 .node.vbox:hover .port{opacity:1;pointer-events:auto}

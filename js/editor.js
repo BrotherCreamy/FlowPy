@@ -298,7 +298,7 @@ function buildNode(n){
   const body=el('div',{cls:'body'});
   const gg=G();
   p.ins.forEach((pt,i)=>{
-    const y=GRID*(2+i)-HDR;
+    const y=GRID*(1+i)-HDR;
     const wired=isVarBox&&gg.wires.some(w=>w.t[0]===n.id&&w.t[1]===i);
     const port=el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:-6px;top:${y-6}px`,'data-n':n.id,'data-s':'in','data-i':i,title:isVarBox?'set '+n.varName:pt.name+':'+pt.type});
     hookValueHover(port,inputKeyFn(n.id,i));
@@ -306,7 +306,7 @@ function buildNode(n){
     if(pt.name){ const lbl=el('div',{cls:'plabel',style:`left:12px;top:${y-7}px`},pt.name);
       hookValueHover(lbl,inputKeyFn(n.id,i)); body.append(lbl); } });
   p.outs.forEach((pt,i)=>{
-    const y=GRID*(2+i)-HDR;
+    const y=GRID*(1+i)-HDR;
     const wired=isVarBox&&gg.wires.some(w=>w.f[0]===n.id&&w.f[1]===i);
     body.append(el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:${s.w-6}px;top:${y-6}px`,'data-n':n.id,'data-s':'out','data-i':i,title:isVarBox?'get '+n.varName:pt.name+':'+pt.type}));
     if(pt.name) body.append(el('div',{cls:'plabel',style:`right:12px;top:${y-7}px;text-align:right`},pt.name)); });
@@ -315,7 +315,7 @@ function buildNode(n){
     const f=el('input',{value:String(n.value),title:'python literal'});
     f.addEventListener('change',()=>{ n.value=f.value; n.vtype=guessType(f.value); renderGraph(); markDirty(); });
     f.addEventListener('mousedown',e=>e.stopPropagation());
-    body.append(el('div',{cls:'pfield',style:`top:${GRID*(rows+1)-HDR+1}px`},f));
+    body.append(el('div',{cls:'pfield',style:`top:${GRID*rows-HDR+1}px`},f));
   }
   d.append(body);
   return d;
