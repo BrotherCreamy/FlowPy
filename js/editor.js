@@ -566,8 +566,12 @@ document.addEventListener('mousemove',e=>{
     for(const n of g.nodes){ const d=nodesL.querySelector(`.node[data-id="${n.id}"]`); if(d){d.style.left=n.x+'px'; d.style.top=n.y+'px';} }
     rerouteAll(); }
   else if(drag.type==='wire'){ const p=toGraph(e.clientX,e.clientY);
-    const q={x:snap(p.x),y:snap(p.y)}, anc={x:drag.ax,y:drag.ay};
-    drag.temp.setAttribute('d', drag.rev? quickPath(q,anc,anc.x<=q.x) : quickPath(anc,q,q.x<=anc.x));
+    const anc={x:drag.ax,y:drag.ay};
+    /* just a straight line to the pointer while dragging — the orthogonal
+       routed preview never told the user anything real anyway, since the
+       actual route (computed once the connection lands on a real port) can
+       come out completely different from whatever the live preview guessed. */
+    drag.temp.setAttribute('d', drag.rev? 'M'+p.x+','+p.y+' L'+anc.x+','+anc.y : 'M'+anc.x+','+anc.y+' L'+p.x+','+p.y);
     const t=document.elementFromPoint(e.clientX,e.clientY);
     $$('.port.tgt').forEach(x=>x.classList.remove('tgt'));
     if(t&&t.classList.contains('port')&&t.dataset.s===(drag.rev?'out':'in')) t.classList.add('tgt'); }
