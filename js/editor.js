@@ -159,9 +159,26 @@ function dragPreview(g,drag,cursorY){
     if(crossing){ movers=myTree; byTree=true; }
     else{ movers=branchMovers; byTree=false; }
   }
-  const scopeIds = byTree||alt
+  let scopeIds = byTree||alt
     ? originalIds.filter(id=>!movers.has(id))
     : originalIds.filter(id=>myTree.has(id)&&!movers.has(id));
+  /* a mover's own ancestors are never valid swap targets, even when one
+     shares a row with a legitimate sibling and would otherwise be matched
+     first — unconstrained siblings (two independent branches of the same
+     fan-out, say) can freely swap because neither produces the other, same
+     as reordering the commutative terms of an expression; a producer and
+     its own consumer are not commutative, so splicing the mover before
+     something that feeds it isn't a reordering choice, it's the array
+     asserting an effect happens before its cause. Only matters for the
+     within-tree case — a whole-tree swap already excludes the mover's
+     entire tree, ancestors included, from scope by construction. */
+  if(!byTree&&!alt){
+    scopeIds=scopeIds.filter(id=>{
+      const reach=forwardClosure(g,[id]);
+      for(const m of movers) if(reach.has(m)) return false;
+      return true;
+    });
+  }
   /* nothing in scope means there's no sibling to reorder the grabbed branch
      against — most commonly, grabbing a tree's own root, whose forward
      closure IS the tree, leaving no "rest of the tree" to compare with.
