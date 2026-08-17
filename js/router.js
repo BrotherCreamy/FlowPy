@@ -36,8 +36,20 @@ const DX=[GRID,0,-GRID,0], DY=[0,GRID,0,-GRID];   // 0:→ 1:↓ 2:← 3:↑
    and only falls back to soft if that leaves no path at all — a hard-only
    search that fails would otherwise drop straight to the naive quickPath,
    which isn't congestion-aware at all and produces worse overlap than the
-   soft pass would have. */
-function aStar(s,t,obs,used,hard){
+   soft pass would have.
+
+   `free` is the exception to both: cells an earlier-routed wire from this
+   wire's OWN source port already used. Without it, every fan-out sibling
+   actively avoids the shared trunk exactly where it should be extending
+   it — congestion cost exists to keep unrelated wires apart, but treating
+   your own branch's trunk as congestion sends later siblings on unrelated
+   detours in search of "clear" ground that was never really contested,
+   which reads as a tangle even though each individual route is a locally
+   sane, deterministic result of the search. Free cells cost the same as
+   never having been touched at all, so a sibling naturally keeps following
+   the existing trunk for as long as it's actually going its way, and only
+   peels off once its own target pulls it elsewhere. */
+function aStar(s,t,obs,used,hard,free){
   const minX=Math.min(s.x,t.x)-PAD, maxX=Math.max(s.x,t.x)+PAD;
   const minY=Math.min(s.y,t.y)-PAD, maxY=Math.max(s.y,t.y)+PAD;
   const nx=(maxX-minX)/GRID+1, ny=(maxY-minY)/GRID+1;
@@ -54,12 +66,13 @@ function aStar(s,t,obs,used,hard){
       const nx2=c.x+DX[d], ny2=c.y+DY[d];
       if(nx2<minX||nx2>maxX||ny2<minY||ny2>maxY) continue;
       if(blocked(obs,nx2,ny2)) continue;
-      const u=used[nx2+','+ny2]||0;
+      const key=nx2+','+ny2;
+      const u=(free&&free.has(key))?0:(used[key]||0);
       if(hard&&u) continue;
       const vert=(d===1||d===3);
       const g=c.g+1+(d===c.d?0:TURN)+(hard?0:u*USEDCOST)
               +(vert? LEFTBIAS*(nx2-minX)/(maxX-minX+GRID) : 0);   // keep vertical runs to the left
-      const k=nx2+','+ny2+','+d;
+      const k=key+','+d;
       if(seen[k]!==undefined&&seen[k]<=g) continue;
       seen[k]=g;
       open.push({x:nx2,y:ny2,d,g,f:g+h(nx2,ny2),p:c});
@@ -113,14 +126,15 @@ function pathClear(pts,obs){
    once anything is already using a cell along it; the caller then falls
    through to the A* search below, which already treats used cells as
    expensive rather than forbidden and spaces the two runs apart. */
-function pathClearOfWires(pts,used){
+function pathClearOfWires(pts,used,free){
   for(let i=0;i<pts.length-1;i++){
     const a=pts[i], b=pts[i+1];
     const sx=Math.sign(b.x-a.x)*GRID, sy=Math.sign(b.y-a.y)*GRID;
     let x=a.x, y=a.y, guard=0;
     while((x!==b.x||y!==b.y)&&guard++<3000){
       x+=sx; y+=sy;
-      if(used[x+','+y]) return false;
+      const key=x+','+y;
+      if(used[key]&&!(free&&free.has(key))) return false;
     }
   }
   return true;
@@ -144,14 +158,14 @@ function markUsed(used,pts){
     used[b.x+','+b.y]=(used[b.x+','+b.y]||0)+1;
   }
 }
-function routeWire(graph,w,obs,used){
+function routeWire(graph,w,obs,used,free){
   const a=graph.nodes.find(n=>n.id===w.f[0]), b=graph.nodes.find(n=>n.id===w.t[0]);
   if(!a||!b) return '';
   const p1=portPos(a,'out',w.f[1]), p2=portPos(b,'in',w.t[1]);
   const back=isBack(graph,w);
   if(!back){
     const dp=directPts(p1,p2);
-    if(dp&&pathClear(dp,obs)&&pathClearOfWires(dp,used)){ markUsed(used,dp); return polyPath(dp); }
+    if(dp&&pathClear(dp,obs)&&pathClearOfWires(dp,used,free)){ markUsed(used,dp); return polyPath(dp); }
     /* used to bail out to quickPath here whenever the two ports were close
        together (p2.x-p1.x<=2*GRID) — but quickPath recomputes the exact same
        direct geometry the congestion check above just rejected, so a busy
@@ -163,8 +177,8 @@ function routeWire(graph,w,obs,used){
   const s={x:p1.x+GRID,y:p1.y}, t={x:p2.x-GRID,y:p2.y};
   let pts=null;
   if(!blocked(obs,s.x,s.y)&&!blocked(obs,t.x,t.y)){
-    pts=aStar(s,t,obs,used,true);
-    if(!pts) pts=aStar(s,t,obs,used,false);
+    pts=aStar(s,t,obs,used,true,free);
+    if(!pts) pts=aStar(s,t,obs,used,false,free);
   }
   if(!pts) return quickPath(p1,p2,back);
   const full=simplify([p1,...pts,p2]);
@@ -447,8 +461,18 @@ function gappedD(wireId){
 }
 function rerouteAll(){
   const g=G(), obs=obstaclesOf(g), used={};
+  /* per-source-port cell sets, so a fan-out sibling routed later sees its
+     own trunk as free (see aStar's `free` param) without affecting how it
+     treats anyone else's wires. */
+  const bySource={};
   const order=g.wires.slice().sort((x,y)=>wLen(g,x)-wLen(g,y));
-  for(const w of order) ROUTES[w.id]=routeWire(g,w,obs,used);
+  for(const w of order){
+    const srcKey=w.f[0]+':'+w.f[1];
+    const d=routeWire(g,w,obs,used,bySource[srcKey]);
+    ROUTES[w.id]=d;
+    const set=bySource[srcKey]=bySource[srcKey]||new Set();
+    for(const c of cellWalk(parsePts(d))) set.add(c.x+','+c.y);
+  }
   computeVisualPaths(g);
   computeFanOutTrim(g);
   computeCrossingGaps(g);
