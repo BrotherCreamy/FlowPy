@@ -280,7 +280,13 @@ function demoProject(){
   const N=(g,k,o)=>{ const n=Object.assign({id:uid('n'),k},o); g.nodes.push(n); return n; };
   const blk=(g,type,x,y,params)=>N(g,'blk',{type,x,y,params:Object.assign({},
     ((typeOf(type).params)||[]).reduce((a,q)=>(a[q.name]=q.def,a),{}),params||{})});
-  const W_=(g,a,ai,b,bi)=>g.wires.push({id:uid('w'),f:[a.id,ai],t:[b.id,bi]});
+  /* .back is stated explicitly for every wire here, not left for tagWires to
+     guess from the hand-placed x/y below — those coordinates are only a
+     starting layout (compaction moves them anyway), and boundary cases in
+     them (e.g. a width estimate landing a source's output edge exactly on a
+     target's input x) can flip the geometric guess the wrong way. Direction
+     is a decision this demo already knows; state it. */
+  const W_=(g,a,ai,b,bi,back)=>g.wires.push({id:uid('w'),f:[a.id,ai],t:[b.id,bi],back:!!back});
 
   /* user F written in python */
   const pct={id:uid('t'),name:'PERCENT',kind:'F',impl:'py',group:'User',
@@ -327,7 +333,7 @@ function demoProject(){
   const cmp=blk(g,'gt',460,560);
   const pr2=blk(g,'print',680,560,{label:'ramp',on_change:true});
   W_(g,bk,0,ct,0); W_(g,ct,0,cmp,0); W_(g,k4,0,cmp,1); W_(g,ct,0,pr2,0);
-  W_(g,cmp,0,ct,1);                       // <- back wire
+  W_(g,cmp,0,ct,1,true);                  // <- the one deliberate feedback wire
 
   snapProject(p); tagProject(p);
   P_=P0;

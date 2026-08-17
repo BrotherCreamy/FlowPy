@@ -102,6 +102,7 @@ function rowInsertIndex(nodes,cursorY){
    flip back — a feedback loop the user could see as flicker. */
 function dragPreview(g,drag,cursorY){
   const {alt,myTree,branchMovers,altMovers,originalIds,originalPos,band}=drag;
+  const byId={}; g.nodes.forEach(n=>{byId[n.id]=n;});
   let movers,scopeIds;
   if(alt){ movers=altMovers; scopeIds=originalIds.filter(id=>!movers.has(id)); }
   else{
@@ -109,6 +110,13 @@ function dragPreview(g,drag,cursorY){
     if(crossing){ movers=myTree; scopeIds=originalIds.filter(id=>!movers.has(id)); }
     else{ movers=branchMovers; scopeIds=originalIds.filter(id=>myTree.has(id)&&!movers.has(id)); }
   }
+  /* nothing in scope means there's no sibling to reorder the grabbed branch
+     against — most commonly, grabbing a tree's own root, whose forward
+     closure IS the tree, leaving no "rest of the tree" to compare with.
+     Hold at the original order rather than falling through to "insert at
+     the end", which would move the whole tree for any movement at all,
+     however small, well before the cursor ever left its own tree's span. */
+  if(scopeIds.length===0){ g.nodes=originalIds.map(id=>byId[id]); computeLayout(g); return movers; }
   const scopeProxies=scopeIds.map(id=>Object.assign({},nodeById(id),{y:originalPos[id].y}));
   const idx=rowInsertIndex(scopeProxies,cursorY);
   const movingIds=originalIds.filter(id=>movers.has(id));
@@ -117,7 +125,6 @@ function dragPreview(g,drag,cursorY){
   if(idx<scopeIds.length) gi=restIds.indexOf(scopeIds[idx]);
   else gi=scopeIds.length ? restIds.indexOf(scopeIds[scopeIds.length-1])+1 : restIds.length;
   const newOrder=[...restIds.slice(0,gi), ...movingIds, ...restIds.slice(gi)];
-  const byId={}; g.nodes.forEach(n=>byId[n.id]=n);
   g.nodes=newOrder.map(id=>byId[id]);
   computeLayout(g);
   return movers;
