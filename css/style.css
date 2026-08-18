@@ -112,7 +112,13 @@ label{font-size:11px;color:var(--fg2)}
 .port.bool{border-radius:2px}
 .plabel{position:absolute;font-size:13px;line-height:1;color:var(--fg2);white-space:nowrap;pointer-events:none}
 .node .val{position:absolute;right:6px;font:10px/1 var(--mono);color:var(--fg2)}
-.node .pfield{position:absolute;left:6px;right:6px;height:18px}
+/* right inset matches .plabel's 12px, not the left's 6px: a hasField block
+   (CONST) has an output port poking half-into its right edge, and 6px was
+   exactly that port's visible radius — the field ran right up against it
+   with zero breathing room, while the port-free left side had a clean gap,
+   reading as off-centre even though the box itself was mathematically
+   symmetric. */
+.node .pfield{position:absolute;left:6px;right:12px;height:18px}
 .node .pfield input{width:100%;height:18px;padding:0 4px;font:11px/1 var(--mono)}
 .wire{fill:none;stroke:#4a5768;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .wire.back{stroke:#b07cff;stroke-dasharray:7 5}
