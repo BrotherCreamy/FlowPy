@@ -324,18 +324,33 @@ function topoForwardOrder(graph){
   if(order.length<ids.length) for(const id of ids) if(!order.includes(id)) order.push(id);
   return order;
 }
-/* a source with more than one forward consumer needs more than MINGAP of
-   clearance after it: any consumer NOT on the source's own row pulls a wire
-   down (or up) through that gap on its way to wherever it's actually going,
-   and that wire needs a column of its own — one MINGAP only ever has room
-   for the single direct wire, so a second, unrelated wire that also has to
-   thread through the same gap (e.g. one heading to a different input of the
-   same-row consumer) ends up sharing a column with it, which reads as a
-   connection that isn't really there. One extra grid unit per additional
-   consumer keeps that from ever being forced. */
-function fanOutGapAfter(graph,s){
-  const n=graph.wires.filter(w=>w.f[0]===s.id&&!isBack(graph,w)).length;
-  return n>1 ? MINGAP+(n-1)*GRID : MINGAP;
+/* the corridor between a source and one of its forward targets needs a
+   column of its own for every wire that has to bend through it — never just
+   one MINGAP's worth, no matter how many unrelated wires end up sharing it.
+   Two separate things add columns:
+   1. any OTHER forward consumer of the same source: a consumer not on the
+      source's own row pulls a wire down (or up) through this same gap on
+      its way to wherever it's actually going (one extra column each).
+   2. any OTHER input of the target fed from a DIFFERENT source that isn't
+      aligned to arrive on the same row as that input: that wire also has
+      to bend through this same gap on its way in (one extra column each).
+   Without both counted together, the router is left trying to fit more
+   wires through the gap than it was ever given room for — routing can
+   still find A path in the squeeze, but never a clean, consistent one; the
+   fix belongs here; a router can't manufacture space that was never laid
+   out for it. */
+function corridorGap(graph,s,n){
+  const branches=graph.wires.filter(w=>w.f[0]===s.id&&!isBack(graph,w)).length;
+  const p=portsOf(n);
+  let bentOther=0;
+  for(let i=0;i<p.ins.length;i++){
+    const w=graph.wires.find(w=>w.t[0]===n.id&&w.t[1]===i&&!isBack(graph,w));
+    if(!w||w.f[0]===s.id) continue;                        // wires from s itself are already counted via `branches`
+    const src=graph.nodes.find(x=>x.id===w.f[0]); if(!src) continue;
+    if(portPos(src,'out',w.f[1]).y!==portPos(n,'in',i).y) bentOther++;
+  }
+  const extra=Math.max(0,branches-1)+bentOther;
+  return extra>0 ? MINGAP+extra*GRID : MINGAP;
 }
 function layoutX(graph){
   for(const id of topoForwardOrder(graph)){
@@ -346,7 +361,7 @@ function layoutX(graph){
       if(isBack(graph,w)) continue;                        // a feedback wire's target never gets pulled by its source's x —
                                                               // see below for why that used to happen and why it was wrong
       const s=graph.nodes.find(x=>x.id===w.f[0]); if(!s) continue;
-      required=Math.max(required, portPos(s,'out',w.f[1]).x+fanOutGapAfter(graph,s));
+      required=Math.max(required, portPos(s,'out',w.f[1]).x+corridorGap(graph,s,n));
     }
     if(required===-Infinity){
       if(n.k==='gin'||n.k==='gout') continue;             // graph-boundary pins keep their own placement
