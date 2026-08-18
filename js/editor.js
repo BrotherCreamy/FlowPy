@@ -315,7 +315,13 @@ function buildNode(n){
     const f=el('input',{value:String(n.value),title:'python literal'});
     f.addEventListener('change',()=>{ n.value=f.value; n.vtype=guessType(f.value); renderGraph(); markDirty(); });
     f.addEventListener('mousedown',e=>e.stopPropagation());
-    body.append(el('div',{cls:'pfield',style:`top:${GRID*(1+rows)+PORT_PAD-HDR+1}px`},f));
+    /* the field lives in the dedicated extra GRID row nodeSize() adds for
+       hasField blocks (h+=GRID) — it isn't a port, so unlike port rows this
+       has nothing to do with PORT_PAD; that was added here by a flawed
+       analogy last round and pushed the field 10px past the block's own
+       bottom edge (PORT_PAD is breathing room around PORTS specifically,
+       not a general "add extra space" constant). */
+    body.append(el('div',{cls:'pfield',style:`top:${GRID*(1+rows)-HDR+1}px`},f));
   }
   d.append(body);
   return d;
