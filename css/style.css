@@ -186,12 +186,26 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node.sel{outline:calc(1px*var(--iz)) solid #fff;outline-offset:calc(3px*var(--iz))}
 .node.moving{outline:calc(1px*var(--iz)) dashed #fff;outline-offset:calc(3px*var(--iz))}
 .node.err{outline:calc(1px*var(--iz)) solid var(--err);outline-offset:calc(3px*var(--iz))}
+/* the header's own BOX stays the full reserved GRID unit tall (20px) — .body
+   still has to start exactly there, in normal document flow, for every
+   port-row offset elsewhere to stay correct — but only its top 14px is
+   painted with the title colour; the reserved-but-unpainted strip below
+   lets the block's own body colour show through underneath it. Ports sit
+   exactly on the grid dot one unit down (model.js, no PORT_PAD any more),
+   so their own paint reaches up to 6px above that dot — a 20px-tall solid
+   header would always overlap that by 6px; a header that only LOOKS 14px
+   tall doesn't. Title/badge shift to the top of the box (align-items) to
+   sit inside the painted region, not centered across the whole 20px. */
 .node .hd,
 .node.k-FB .hd,.node.k-F .hd,.node.k-io .hd,.node.k-var .hd,.node.k-const .hd{
-  background:var(--ntitle);color:#f2f3f5;border:none;border-radius:0;font-weight:300;letter-spacing:.2px}
+  background-color:transparent;background-image:linear-gradient(var(--ntitle),var(--ntitle));
+  background-size:100% 14px;background-repeat:no-repeat;background-position:top;
+  align-items:flex-start;padding-top:1px;font-size:11px;
+  color:#f2f3f5;border:none;border-radius:0;font-weight:300;letter-spacing:.2px}
 .node .hd .badge,
 .node.k-FB .hd .badge,.node.k-F .hd .badge{
-  background:transparent;color:#f2f3f5;border:calc(1px*var(--iz)) solid #f2f3f5;border-radius:0;font-weight:700}
+  background:transparent;color:#f2f3f5;border:calc(1px*var(--iz)) solid #f2f3f5;border-radius:0;font-weight:700;
+  font-size:9px;padding:1px 2px}
 .node .plabel{color:var(--ntxt);opacity:.7}
 .node .pfield input{background:#fff;border:calc(1px*var(--iz)) solid var(--ntitle);color:#1b1d20}
 .node .hd .ttl-edit{background:var(--ntitle);border:calc(1px*var(--iz)) solid #f2f3f5;color:#f2f3f5}
