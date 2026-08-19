@@ -226,26 +226,21 @@ function nodeSize(n){
     const lw = Math.max(...p.ins.map(x=>x.name.length),0)*7.8, rw=Math.max(...p.outs.map(x=>x.name.length),0)*7.8;
     w = Math.max(w, lw+rw+62, (t?t.name.length:4)*9.5+54); }
   w = Math.ceil(w/GRID)*GRID;                       // width is a whole number of cells
-  let h = GRID*(rows+1);                            // header cell + one cell per port row + 2*PORT_PAD (== GRID, see portPos)
+  let h = GRID*(rows+1);                            // header cell + one cell per port row, no extra margin
   if(hasField(n)) h += GRID;
   return {w,h};
 }
-/* PORT_PAD: a small, fixed breathing-room gap above the first port row and
-   below the last (half of what it used to be — GRID, i.e. a whole unit,
-   was too much once block-to-block spacing tightened to just one grid
-   unit; zero, tried right after that, read as no margin at all). This does
-   NOT need to be a multiple of GRID itself: the A* router only ever steps
-   by whole GRID units starting from a port's position (DX/DY in router.js),
-   so all it actually requires is that the DIFFERENCE between any two ports'
-   coordinates is a grid multiple — true as long as every port adds the
-   exact same constant, since it then cancels out of every such difference.
-   nodeSize()'s h stays a clean multiple of GRID (2*PORT_PAD == GRID here)
-   so row-to-row spacing keeps that same difference-is-a-grid-multiple
-   property across separate blocks, not just within one. */
-const PORT_PAD=GRID/2;
+/* port centres land exactly on a grid intersection — no PORT_PAD offset.
+   An earlier round added a half-grid PORT_PAD here for visual breathing
+   room above/below port rows; it was mathematically safe for the router
+   (which only ever needs the DIFFERENCE between two ports' coordinates to
+   be a grid multiple, not each port's own absolute position), but it broke
+   a harder, more literal requirement: every connection point has to sit
+   exactly on a grid dot, and every wire has to line up with the grid,
+   corner to corner — not just be internally consistent with itself. */
 function portPos(n, side, i){
   const s=nodeSize(n);
-  return { x: n.x + (side==='in'?0:s.w), y: n.y + GRID*(1+i) + PORT_PAD };
+  return { x: n.x + (side==='in'?0:s.w), y: n.y + GRID*(1+i) };
 }
 /* a wire that does not travel strictly left-to-right is a feedback wire:
    it carries the PREVIOUS scan's value. Because every forward wire strictly
@@ -334,12 +329,29 @@ function topoForwardOrder(graph){
    2. any OTHER input of the target fed from a DIFFERENT source that isn't
       aligned to arrive on the same row as that input: that wire also has
       to bend through this same gap on its way in (one extra column each).
-   Without both counted together, the router is left trying to fit more
-   wires through the gap than it was ever given room for — routing can
+   3. any wire ELSEWHERE in the graph that isn't part of this source/target
+      pair at all, but has to cross this same gap in passing — its own
+      source sits at or before s's column, and its own target sits at or
+      after n's column, so wherever it actually gets routed, it has no way
+      to avoid this stretch (one extra column each). This needs REAL x, not
+      topological order — two siblings fed by the same source can need
+      different amounts of their own clearance (exactly what point 2 above
+      computes) and so land in a different x order than the order they were
+      processed in; topological order isn't a safe proxy for that. Real x
+      isn't available for anything at or after n on a single forward pass
+      though, so layoutX below runs this whole computation twice: once to
+      get everyone's provisional x (blind to crossing wires, `prior` is
+      null below), then again using the first pass's positions as `prior`
+      to detect crossings for real. Two fixed passes, not an open-ended
+      "check and correct" loop — still a pure function of graph structure,
+      always converges in exactly two evaluations, same as this codebase's
+      general layout philosophy requires everywhere else.
+   Without all three counted together, the router is left trying to fit
+   more wires through the gap than it was ever given room for — routing can
    still find A path in the squeeze, but never a clean, consistent one; the
    fix belongs here; a router can't manufacture space that was never laid
    out for it. */
-function corridorGap(graph,s,n){
+function corridorGap(graph,s,n,prior,rowOf){
   const branches=graph.wires.filter(w=>w.f[0]===s.id&&!isBack(graph,w)).length;
   const p=portsOf(n);
   let bentOther=0;
@@ -349,27 +361,56 @@ function corridorGap(graph,s,n){
     const src=graph.nodes.find(x=>x.id===w.f[0]); if(!src) continue;
     if(portPos(src,'out',w.f[1]).y!==portPos(n,'in',i).y) bentOther++;
   }
-  const extra=Math.max(0,branches-1)+bentOther;
+  let crossing=0;
+  if(prior){
+    /* x alone isn't enough — a wire whose source/target both happen to
+       straddle this x-range but live entirely on OTHER rows, nowhere near
+       this corridor, was getting counted as if it had to squeeze through
+       here too (verified directly: unrelated same-row pairs elsewhere in
+       the diagram were inflating totally uncontested gaps). Only a wire
+       whose own row-span actually reaches into the row(s) s and n occupy
+       can plausibly need to pass through this specific corridor. */
+    const gapR0=Math.min(rowOf[s.id],rowOf[n.id]), gapR1=Math.max(rowOf[s.id],rowOf[n.id]);
+    for(const w of graph.wires){
+      if(isBack(graph,w)) continue;
+      if(w.f[0]===s.id||w.t[0]===n.id) continue;            // already counted above
+      const ax=prior[w.f[0]], bx=prior[w.t[0]];
+      if(ax===undefined||bx===undefined) continue;
+      if(!(ax<=prior[s.id]&&bx>=prior[n.id])) continue;
+      const ra=rowOf[w.f[0]], rb=rowOf[w.t[0]];
+      if(ra===undefined||rb===undefined) continue;
+      const wR0=Math.min(ra,rb), wR1=Math.max(ra,rb);
+      if(Math.max(gapR0,wR0)<=Math.min(gapR1,wR1)) crossing++;
+    }
+  }
+  const extra=Math.max(0,branches-1)+bentOther+crossing;
   return extra>0 ? MINGAP+extra*GRID : MINGAP;
 }
 function layoutX(graph){
-  for(const id of topoForwardOrder(graph)){
-    const n=graph.nodes.find(x=>x.id===id); if(!n) continue;
-    let required=-Infinity;
-    for(const w of graph.wires){
-      if(w.t[0]!==id) continue;
-      if(isBack(graph,w)) continue;                        // a feedback wire's target never gets pulled by its source's x —
-                                                              // see below for why that used to happen and why it was wrong
-      const s=graph.nodes.find(x=>x.id===w.f[0]); if(!s) continue;
-      required=Math.max(required, portPos(s,'out',w.f[1]).x+corridorGap(graph,s,n));
+  const order=topoForwardOrder(graph);
+  const rowOf=layoutRows(graph);             // row index per node — pure function of structure, independent of x/y pixels
+  const runPass=prior=>{
+    for(const id of order){
+      const n=graph.nodes.find(x=>x.id===id); if(!n) continue;
+      let required=-Infinity;
+      for(const w of graph.wires){
+        if(w.t[0]!==id) continue;
+        if(isBack(graph,w)) continue;                        // a feedback wire's target never gets pulled by its source's x —
+                                                                // see below for why that used to happen and why it was wrong
+        const s=graph.nodes.find(x=>x.id===w.f[0]); if(!s) continue;
+        required=Math.max(required, portPos(s,'out',w.f[1]).x+corridorGap(graph,s,n,prior,rowOf));
+      }
+      if(required===-Infinity){
+        if(n.k==='gin'||n.k==='gout') continue;             // graph-boundary pins keep their own placement
+        n.x=LEFT_MARGIN;                                     // a dataflow root — pinned, not free
+        continue;
+      }
+      n.x=snap(required);
     }
-    if(required===-Infinity){
-      if(n.k==='gin'||n.k==='gout') continue;             // graph-boundary pins keep their own placement
-      n.x=LEFT_MARGIN;                                     // a dataflow root — pinned, not free
-      continue;
-    }
-    n.x=snap(required);
-  }
+  };
+  runPass(null);                             // pass 1: provisional x, blind to crossing wires
+  const prior={}; graph.nodes.forEach(n=>prior[n.id]=n.x);
+  runPass(prior);                            // pass 2: final x, crossing-aware using pass 1's positions
 }
 /* used to also clamp x to stay "left of the feedback source" for any node
    with a backward-incoming wire — the idea being a shorter feedback shaft.

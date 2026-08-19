@@ -298,7 +298,7 @@ function buildNode(n){
   const body=el('div',{cls:'body'});
   const gg=G();
   p.ins.forEach((pt,i)=>{
-    const y=GRID*(1+i)+PORT_PAD-HDR;
+    const y=GRID*(1+i)-HDR;
     const wired=isVarBox&&gg.wires.some(w=>w.t[0]===n.id&&w.t[1]===i);
     const port=el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:-6px;top:${y-6}px`,'data-n':n.id,'data-s':'in','data-i':i,title:isVarBox?'set '+n.varName:pt.name+':'+pt.type});
     hookValueHover(port,inputKeyFn(n.id,i));
@@ -306,7 +306,7 @@ function buildNode(n){
     if(pt.name){ const lbl=el('div',{cls:'plabel',style:`left:12px;top:${y-7}px`},pt.name);
       hookValueHover(lbl,inputKeyFn(n.id,i)); body.append(lbl); } });
   p.outs.forEach((pt,i)=>{
-    const y=GRID*(1+i)+PORT_PAD-HDR;
+    const y=GRID*(1+i)-HDR;
     const wired=isVarBox&&gg.wires.some(w=>w.f[0]===n.id&&w.f[1]===i);
     body.append(el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:${s.w-6}px;top:${y-6}px`,'data-n':n.id,'data-s':'out','data-i':i,title:isVarBox?'get '+n.varName:pt.name+':'+pt.type}));
     if(pt.name) body.append(el('div',{cls:'plabel',style:`right:12px;top:${y-7}px;text-align:right`},pt.name)); });
@@ -315,12 +315,7 @@ function buildNode(n){
     const f=el('input',{value:String(n.value),title:'python literal'});
     f.addEventListener('change',()=>{ n.value=f.value; n.vtype=guessType(f.value); renderGraph(); markDirty(); });
     f.addEventListener('mousedown',e=>e.stopPropagation());
-    /* the field lives in the dedicated extra GRID row nodeSize() adds for
-       hasField blocks (h+=GRID) — it isn't a port, so unlike port rows this
-       has nothing to do with PORT_PAD; that was added here by a flawed
-       analogy last round and pushed the field 10px past the block's own
-       bottom edge (PORT_PAD is breathing room around PORTS specifically,
-       not a general "add extra space" constant). */
+    // the field lives in the dedicated extra GRID row nodeSize() adds for hasField blocks (h+=GRID)
     body.append(el('div',{cls:'pfield',style:`top:${GRID*(1+rows)-HDR+1}px`},f));
   }
   d.append(body);
