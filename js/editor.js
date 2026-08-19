@@ -315,8 +315,8 @@ function buildNode(n){
     const f=el('input',{value:String(n.value),title:'python literal'});
     f.addEventListener('change',()=>{ n.value=f.value; n.vtype=guessType(f.value); renderGraph(); markDirty(); });
     f.addEventListener('mousedown',e=>e.stopPropagation());
-    // the field lives in the dedicated extra GRID row nodeSize() adds for hasField blocks (h+=GRID)
-    body.append(el('div',{cls:'pfield',style:`top:${GRID*(1+rows)-HDR+1}px`},f));
+    // the field shares its port's own row (see nodeSize()'s comment) rather than a dedicated row below it
+    body.append(el('div',{cls:'pfield',style:`top:${GRID*rows-HDR+1}px`},f));
   }
   d.append(body);
   return d;

@@ -227,9 +227,17 @@ function nodeSize(n){
     w = Math.max(w, lw+rw+62, (t?t.name.length:4)*9.5+54); }
   w = Math.ceil(w/GRID)*GRID;                       // width is a whole number of cells
   let h = GRID*(rows+1);                            // header cell + one cell per port row, no extra margin
-  if(hasField(n)) h += GRID;
   return {w,h};
 }
+/* hasField blocks (CONST) used to get an extra dedicated GRID row below
+   their last port for the value field, back when ports sat PORT_PAD (half
+   a grid) below their row's own top edge and the field naturally landed
+   below that. Now that ports sit right at the top of their row (no
+   PORT_PAD), a separate field row left a whole empty grid unit of dead
+   space between the port and the field it belongs to — CONST only has one
+   port and one field, so they share the port's own row instead: the field
+   fills the rest of that row's height below the port, not a row of its
+   own. See editor.js's pfield `top` for the matching offset. */
 /* port centres land exactly on a grid intersection — no PORT_PAD offset.
    An earlier round added a half-grid PORT_PAD here for visual breathing
    room above/below port rows; it was mathematically safe for the router
