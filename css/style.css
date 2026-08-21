@@ -311,11 +311,17 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node .plabel{position:absolute;top:50%;transform:translateY(-50%);color:var(--ntxt);opacity:.7;font-size:13.2px;white-space:nowrap;pointer-events:none}
 .node .ins-col .plabel{left:calc(var(--portsize,8px) + var(--portgap,8px))}
 .node .outs-col .plabel{right:calc(var(--portsize,8px) + var(--portgap,8px))}
-/* CONST is the only hasField block and always has exactly one port/row, so
-   top:1px + bottom:1px (auto-filling whatever --row actually measures to,
-   not a hardcoded height that could drift out of sync with it) lands the
-   field in that single row with a small margin on both sides. */
-.node .pfield{top:1px;bottom:1px;height:auto}
+/* CONST is the only hasField block and always has exactly one port/row.
+   .pfield is a sibling of .body's columns, not a child of .prow, so it
+   never inherited the row-centering convention every other row uses —
+   top:1px+bottom:1px centered it on .body's own MIDDLE, but the port
+   (via .prow's translateY(-50%)) sits at .body's flow-TOP, the grid
+   line — same mismatch as the .plabel-vs-.port bug earlier this session,
+   just for the field instead of a label. Fixed the same way every other
+   row aligns to its grid line: anchor at the flow-top (top:0) and
+   transform:translateY(-50%) to centre the field'S OWN box on that
+   point, not on .body's unrelated full-height middle. */
+.node .pfield{top:0;bottom:auto;height:calc(var(--row,20px) - 4px);transform:translateY(-50%)}
 .node .pfield input{height:100%;background:#fff;border:calc(1px*var(--iz)) solid var(--ntitle);color:#1b1d20}
 .node .hd .ttl-edit{flex:1;width:0;min-width:0;padding:0 2px;font:inherit;font-weight:400;background:var(--ntitle);border:calc(1px*var(--iz)) solid #f2f3f5;color:#f2f3f5}
 /* the block's own name — the dominant, large-scale text on the canvas,
