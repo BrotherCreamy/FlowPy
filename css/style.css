@@ -19,6 +19,12 @@
      value, uncompensated. */
   --iz:1;
   --nbody:#4a4d52; --ntitle:#2a2c30; --ntxt:#ececee; --nport:#a9adb3; --nline:#a9adb3;
+  /* --hdr/--row: the header slot height and port-row height, measured from
+     real text/icon metrics then rounded up to a whole GRID unit (see
+     model.js HDR_()/ROW_()) — kept live by editor.js so every block in the
+     DOM shares the exact same values the model used to compute port
+     positions. 20px here is just the pre-JS fallback for the first paint. */
+  --hdr:20px; --row:20px;
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
@@ -204,7 +210,7 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
    that, verified by measuring the real rendered box, not by assuming. */
 .node .hd,
 .node.k-FB .hd,.node.k-F .hd,.node.k-io .hd,.node.k-var .hd,.node.k-const .hd{
-  height:20px;position:relative;background:none;border:none;padding:0;overflow:visible}
+  height:var(--hdr,20px);position:relative;background:none;border:none;padding:0;overflow:visible}
 .node .hd-bar{
   position:absolute;left:0;top:0;width:100%;box-sizing:border-box;
   display:flex;align-items:center;gap:5px;padding:1px 6px;
@@ -215,12 +221,28 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
   background:transparent;color:#f2f3f5;border:calc(1px*var(--iz)) solid #f2f3f5;border-radius:0;font-weight:700;
   font-size:9px;line-height:1;padding:1px 2px;flex:0 0 auto}
 .node .hd .ttl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;cursor:text}
-/* transform:translateY(-50%) centers on the port's y using the label's own
-   real rendered height (line-height/font-metrics), not a hand-picked "-7px"
-   guess that only happened to work for one specific font-size. */
-.node .plabel{color:var(--ntxt);opacity:.7;font-size:11px;transform:translateY(-50%)}
-.node .val{font-size:11px}
-.node .pfield input{background:#fff;border:calc(1px*var(--iz)) solid var(--ntitle);color:#1b1d20}
+/* body layout: a real hierarchy, not individually-computed absolute
+   positions. .prow is exactly one measured row tall (--row, see model.js
+   HDR_()/ROW_()) and stacks in plain flex flow — row i's own flow-box
+   naturally starts at i*row-height, no explicit `top` needed anywhere.
+   transform:translateY(-50%) then shifts each row's PAINT (not its flow
+   box, which is what its neighbours stack against) up by half its own
+   height, landing its content's centre exactly on the row's own top
+   edge — the grid line — instead of the row's middle; ports must sit on
+   an exact grid dot, and centering naturally within a row would land them
+   half a row off that. */
+.node .body{position:relative;display:flex;flex-direction:row}
+.node .ins-col,.node .outs-col{display:flex;flex-direction:column;flex:0 0 auto}
+.node .body-spacer{flex:1 1 auto}
+.node .prow{height:var(--row,20px);display:flex;align-items:center;gap:8px;transform:translateY(-50%);overflow:visible}
+.node .outs-col .prow{justify-content:flex-end}
+.node .plabel{color:var(--ntxt);opacity:.7;font-size:11px;white-space:nowrap;pointer-events:none}
+/* CONST is the only hasField block and always has exactly one port/row, so
+   top:1px + bottom:1px (auto-filling whatever --row actually measures to,
+   not a hardcoded height that could drift out of sync with it) lands the
+   field in that single row with a small margin on both sides. */
+.node .pfield{top:1px;bottom:1px;height:auto}
+.node .pfield input{height:100%;background:#fff;border:calc(1px*var(--iz)) solid var(--ntitle);color:#1b1d20}
 .node .hd .ttl-edit{flex:1;width:0;min-width:0;padding:0 2px;font:inherit;font-weight:400;background:var(--ntitle);border:calc(1px*var(--iz)) solid #f2f3f5;color:#f2f3f5}
 /* the block's own name — the dominant, large-scale text on the canvas,
    closest in role to the reference image — renders in Sono (thin/rounded
@@ -245,15 +267,22 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
    only the inward half; the half that would poke out past the edge is
    simply not drawn, so the port reads as a flush notch, not a bead
    straddling the boundary, while remaining just as easy to grab as before.
-   Size is deliberately EVEN (8px) — an odd width centred via an
-   integer left offset (-N) always lands its middle at N+0.5, not N, which
-   put the 50% clip boundary — and so the flush edge — half a pixel off the
-   true block edge (invisible under the old blurry transform-scaled
-   rendering, obvious once #nodes switched to crisp `zoom` layout: a visible
-   gap on the in-port side, a visible overhang on the out-port side). Offset
-   in editor.js's buildNode() must stay exactly half of this (-4px) to keep
-   the centre on the grid dot. */
-.port{width:8px;height:8px;background:transparent;border:none;border-radius:0;box-shadow:none;position:absolute}
+   Size is deliberately EVEN (8px) — an odd width centred via an integer
+   margin always lands its middle at N+0.5, not N, which put the 50% clip
+   boundary — and so the flush edge — half a pixel off the true block edge
+   (invisible under the old blurry transform-scaled rendering, obvious once
+   #nodes switched to crisp `zoom` layout: a visible gap on the in-port
+   side, a visible overhang on the out-port side). The port is a normal
+   flex child of its row now (not absolutely positioned) — margin-left/
+   -right (half its own width, negative) is what pulls it out past its
+   column's own edge to straddle the block boundary, same idea as before
+   but expressed as a real box-model relationship instead of a computed
+   left:Npx guess. position:relative (not static) only so its own ::before
+   overlay below still anchors to ITself via inset:0, not the nearest
+   positioned ancestor. */
+.port{width:8px;height:8px;background:transparent;border:none;border-radius:0;box-shadow:none;position:relative;flex:0 0 auto}
+.port[data-s="in"]{margin-left:-4px}
+.port[data-s="out"]{margin-right:-4px}
 .port::before{content:'';position:absolute;inset:0;background:var(--nport);border-radius:50%}
 .port[data-s="in"]::before{clip-path:inset(0 0 0 50%)}
 .port[data-s="out"]::before{clip-path:inset(0 50% 0 0)}

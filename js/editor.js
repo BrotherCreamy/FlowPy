@@ -51,6 +51,22 @@ function applyCam(){ world.style.transform=`translate(${cam.x}px,${cam.y}px)`;
      in router.js) a constant screen size regardless of zoom — see the --iz
      comment in css/style.css. */
   document.documentElement.style.setProperty('--iz', String(1/cam.z)); }
+/* pushes HDR_()/ROW_() (model.js — measured from real text/icon metrics,
+   rounded up to a whole GRID unit) into CSS so every block's rendered
+   header height and port-row height use the EXACT SAME numbers portPos()
+   used to place its ports — this is what keeps rendered ports and the
+   wires drawn to them landing on the same pixel. Called once at startup
+   and again once real fonts are confirmed loaded (see below): the very
+   first measurement may have used a fallback font in place of Sono if it
+   hadn't finished loading yet, which self-corrects here rather than
+   leaving a slightly-wrong constant baked in for the rest of the session. */
+function applySizeVars(){
+  document.documentElement.style.setProperty('--hdr', HDR_()+'px');
+  document.documentElement.style.setProperty('--row', ROW_()+'px');
+}
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{
+  invalidateSizeCache(); applySizeVars(); renderGraph();
+});
 function toGraph(cx,cy){ const r=cwrap.getBoundingClientRect();
   return {x:(cx-r.left-cam.x)/cam.z, y:(cy-r.top-cam.y)/cam.z}; }
 
@@ -285,6 +301,26 @@ function titleEl(n){
   });
   return span;
 }
+/* one input or output row: [port, label] in DOM order for inputs (port at
+   the block's edge, label reading inward), [label, port] for outputs
+   (label reading inward, port at the edge) — CSS never has to flip
+   anything, the row just IS the visual order it renders in. */
+function buildRow(n,pt,side,i,isVarBox,gg){
+  const wired=isVarBox&&(side==='in'
+    ? gg.wires.some(w=>w.t[0]===n.id&&w.t[1]===i)
+    : gg.wires.some(w=>w.f[0]===n.id&&w.f[1]===i));
+  const port=el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),
+    'data-n':n.id,'data-s':side,'data-i':i,
+    title:isVarBox?(side==='in'?'set ':'get ')+n.varName:pt.name+':'+pt.type});
+  hookValueHover(port,inputKeyFn(n.id,i));
+  const row=el('div',{cls:'prow'});
+  if(pt.name){
+    const lbl=el('div',{cls:'plabel'},pt.name);
+    hookValueHover(lbl,inputKeyFn(n.id,i));
+    row.append(...(side==='in'?[port,lbl]:[lbl,port]));
+  } else row.append(port);
+  return row;
+}
 function buildNode(n){
   const s=nodeSize(n), p=portsOf(n);
   const isVarBox=n.k==='var';
@@ -299,26 +335,17 @@ function buildNode(n){
   d.append(hd);
   const body=el('div',{cls:'body'});
   const gg=G();
-  p.ins.forEach((pt,i)=>{
-    const y=GRID*(1+i)-HDR;
-    const wired=isVarBox&&gg.wires.some(w=>w.t[0]===n.id&&w.t[1]===i);
-    const port=el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:-4px;top:${y-4}px`,'data-n':n.id,'data-s':'in','data-i':i,title:isVarBox?'set '+n.varName:pt.name+':'+pt.type});
-    hookValueHover(port,inputKeyFn(n.id,i));
-    body.append(port);
-    if(pt.name){ const lbl=el('div',{cls:'plabel',style:`left:12px;top:${y}px`},pt.name);
-      hookValueHover(lbl,inputKeyFn(n.id,i)); body.append(lbl); } });
-  p.outs.forEach((pt,i)=>{
-    const y=GRID*(1+i)-HDR;
-    const wired=isVarBox&&gg.wires.some(w=>w.f[0]===n.id&&w.f[1]===i);
-    body.append(el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:${s.w-4}px;top:${y-4}px`,'data-n':n.id,'data-s':'out','data-i':i,title:isVarBox?'get '+n.varName:pt.name+':'+pt.type}));
-    if(pt.name) body.append(el('div',{cls:'plabel',style:`right:12px;top:${y}px;text-align:right`},pt.name)); });
+  const insCol=el('div',{cls:'ins-col'});
+  p.ins.forEach((pt,i)=>insCol.append(buildRow(n,pt,'in',i,isVarBox,gg)));
+  const outsCol=el('div',{cls:'outs-col'});
+  p.outs.forEach((pt,i)=>outsCol.append(buildRow(n,pt,'out',i,isVarBox,gg)));
+  body.append(insCol,el('div',{cls:'body-spacer'}),outsCol);
   if(hasField(n)){
-    const rows=Math.max(p.ins.length,p.outs.length,1);
     const f=el('input',{value:String(n.value),title:'python literal'});
     f.addEventListener('change',()=>{ n.value=f.value; n.vtype=guessType(f.value); renderGraph(); markDirty(); });
     f.addEventListener('mousedown',e=>e.stopPropagation());
-    // the field shares its port's own row (see nodeSize()'s comment) rather than a dedicated row below it
-    body.append(el('div',{cls:'pfield',style:`top:${GRID*rows-HDR+1}px`},f));
+    // fills its port's own row (see model.js hasField note) rather than a dedicated row below it — top/bottom:1px auto-fills whatever --row actually is
+    body.append(el('div',{cls:'pfield'},f));
   }
   d.append(body);
   return d;

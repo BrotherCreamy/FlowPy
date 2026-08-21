@@ -353,7 +353,7 @@ function demoProject(){
 /* ---- boot -------------------------------------------------------------- */
 function boot(){
   P_=demoProject();
-  applyCam(); renderPalette(); showTab('insp'); renderGraph(); markDirty();
+  applyCam(); applySizeVars(); renderPalette(); showTab('insp'); renderGraph(); markDirty();
   log('FlowPy ready.','g');
   log('· Simulate ▶ runs the exact generated MicroPython in your browser (Pyodide, virtual pins).','i');
   log('· Connect device → Deploy ▶ pushes it to a MicroPython board over USB (Chrome/Edge).','i');

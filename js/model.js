@@ -186,12 +186,68 @@ function newType(kind){
 }
 
 /* ---------- geometry (everything lives on the grid) --------------- */
-const GRID=20, HDR=GRID, ROW=GRID;
+const GRID=20;
 const MINGAP=GRID;        // a downstream block sits at least one unit clear of its source
 const LEFT_MARGIN=2*GRID; // every dataflow root (nothing forward-feeds it) aligns to this x — no free-floating starts
 const TOP_MARGIN=2*GRID;  // row 0 starts here
 const VGAP=GRID;          // vertical clearance between rows
 const snap = v => Math.round(v/GRID)*GRID;
+
+/* ---------- content measurement — sizing happens BEFORE rendering ---
+   Every block dimension (header height, port-row height, block width) is
+   derived from how big its actual content really is, measured with a
+   real canvas text metric (not a per-character pixel guess), then rounded
+   UP to the next whole GRID unit. Sizing has to fully resolve before
+   buildNode() ever runs — the router and layoutX/Y need every node's
+   final width/height before any DOM exists at all, and ports/labels need
+   to render flush against the block's ACTUAL edges once it does — so this
+   stays a synchronous, DOM-free computation (a canvas 2D context can
+   measure text without ever attaching an element to the page), not a
+   render-then-measure-then-relayout cycle. */
+const MONO_STACK='ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono","IBM Plex Mono",Menlo,Consolas,"Liberation Mono",monospace';
+const FONT_TITLE=`300 11px Sono, ${MONO_STACK}`;   // matches css .hd .ttl / .hd-bar
+const FONT_LABEL=`11px ${MONO_STACK}`;             // matches css .plabel
+const FONT_BADGE=`700 9px ${MONO_STACK}`;          // matches css .hd .badge
+let _measureCtx=null;
+function measureCtx(){
+  if(!_measureCtx) _measureCtx=document.createElement('canvas').getContext('2d');
+  return _measureCtx;
+}
+function textWidth(text,font){
+  const ctx=measureCtx(); ctx.font=font;
+  return ctx.measureText(text||'').width;
+}
+/* real glyph-based ascent+descent for one line of a font, at whatever
+   size is already baked into the font string — not an assumed
+   line-height multiplier. Uses a representative string with both
+   ascenders and descenders (a flat number/letter has no descender, which
+   would understate real line height for anything that does). */
+function textLineHeight(font){
+  const ctx=measureCtx(); ctx.font=font;
+  const m=ctx.measureText('Mgy0');
+  return (m.actualBoundingBoxAscent||8)+(m.actualBoundingBoxDescent||3);
+}
+/* HDR (header slot height) and ROW (port-row height) are each computed
+   ONCE — every header and every port row uses identical styling
+   (font/padding never vary by content), so they're globally uniform
+   constants, not something to remeasure per node. Cached lazily since
+   Sono may not be loaded yet at first script evaluation; see
+   invalidateSizeCache() below for the re-measure-after-fonts-load path. */
+let _HDR=null, _ROW=null;
+const HD_VPAD=2, ROW_VPAD=1;   // deliberate design padding, in px — the only hand-picked numbers left, and they're spacing choices, not measurements pretending to be exact
+function computeHDR(){ return Math.ceil((textLineHeight(FONT_TITLE)+HD_VPAD*2)/GRID)*GRID; }
+function computeROW(){ return Math.ceil((Math.max(textLineHeight(FONT_LABEL),PORT_SIZE)+ROW_VPAD*2)/GRID)*GRID; }
+function HDR_(){ return _HDR===null ? (_HDR=computeHDR()) : _HDR; }
+function ROW_(){ return _ROW===null ? (_ROW=computeROW()) : _ROW; }
+/* called once fonts are confirmed loaded (see editor.js bootstrap) — the
+   very first layout pass may have measured Sono's fallback instead of
+   Sono itself; this clears the cache so the next render re-measures for
+   real and self-corrects, rather than leaving a slightly-wrong constant
+   baked in for the rest of the session. */
+function invalidateSizeCache(){ _HDR=null; _ROW=null; }
+const PORT_SIZE=8, PORT_GAP=8;       // css .port width + the icon-to-label gap within a row (css .prow{gap:8px}) — keep in sync
+const MEASURE_SLOP=2;                // canvas measureText() and actual DOM text layout don't agree to the sub-pixel; a small margin keeps the ceil() snap from landing exactly on the edge of clipping
+const ROW_HPAD=6, ROW_MINGAP=GRID;   // body's own left/right inset, and the minimum daylight between the ins/outs columns when a block has both
 function portsOf(n){
   if(n.k==='blk'){ const t=typeOf(n.type); if(!t) return {ins:[],outs:[]};
     return {ins:(t.ins||[]).slice(), outs:(t.outs||[]).slice()}; }
@@ -219,25 +275,42 @@ function nodeKindClass(n){
   return 'k-var';
 }
 function hasField(n){ return n.k==='const'; }
+/* badge width: real text width plus its own padding/border, matching css
+   .hd .badge exactly (padding:1px 2px, border:1px). Only blk nodes with a
+   type ever render one. */
+function badgeWidth(n){
+  if(n.k!=='blk') return 0;
+  const t=typeOf(n.type); if(!t) return 0;
+  return textWidth(t.kind,FONT_BADGE)+2*2+2*1;
+}
+/* one port row's natural content width: the port icon, the gap to its
+   label, and the label's real measured text width. Zero if the row has
+   no name (an unlabelled port still reserves its own icon-width column
+   so the port itself has somewhere to sit). */
+function rowContentWidth(pt){
+  if(!pt||!pt.name) return PORT_SIZE;
+  return PORT_SIZE+PORT_GAP+textWidth(pt.name,FONT_LABEL);
+}
 function nodeSize(n){
   const p=portsOf(n), rows=Math.max(p.ins.length,p.outs.length,1);
-  let w = n.w || Math.max(120, nodeTitle(n).length*9.5+54);
-  if(n.k==='blk'){ const t=typeOf(n.type);
-    const lw = Math.max(...p.ins.map(x=>x.name.length),0)*7.8, rw=Math.max(...p.outs.map(x=>x.name.length),0)*7.8;
-    w = Math.max(w, lw+rw+62, (t?t.name.length:4)*9.5+54); }
-  w = Math.ceil(w/GRID)*GRID;                       // width is a whole number of cells
-  let h = GRID*(rows+1);                            // header cell + one cell per port row, no extra margin
+  let w;
+  if(n.w){ w=n.w; }
+  else{
+    const badgeW=badgeWidth(n);
+    const titleW=(badgeW?badgeW+5:0)+textWidth(nodeTitle(n),FONT_TITLE)+2*6;      // +5 gap, +2*6 hd-bar padding, matching css
+    const insW=Math.max(0,...p.ins.map(rowContentWidth));
+    const outsW=Math.max(0,...p.outs.map(rowContentWidth));
+    const bodyW=(insW||outsW) ? insW+ROW_MINGAP+outsW+2*ROW_HPAD : 0;
+    w=Math.max(titleW,bodyW)+MEASURE_SLOP;
+  }
+  w=Math.ceil(w/GRID)*GRID;                          // width is a whole number of cells
+  let h=HDR_()+rows*ROW_();                          // header slot + one measured row per port
   return {w,h};
 }
-/* hasField blocks (CONST) used to get an extra dedicated GRID row below
-   their last port for the value field, back when ports sat PORT_PAD (half
-   a grid) below their row's own top edge and the field naturally landed
-   below that. Now that ports sit right at the top of their row (no
-   PORT_PAD), a separate field row left a whole empty grid unit of dead
-   space between the port and the field it belongs to — CONST only has one
-   port and one field, so they share the port's own row instead: the field
-   fills the rest of that row's height below the port, not a row of its
-   own. See editor.js's pfield `top` for the matching offset. */
+/* hasField blocks (CONST) share their field with the port's own row
+   (see editor.js's pfield positioning) rather than a dedicated row below
+   it — CONST only ever has one port and one field, so there's nothing to
+   separate them for. */
 /* port centres land exactly on a grid intersection — no PORT_PAD offset.
    An earlier round added a half-grid PORT_PAD here for visual breathing
    room above/below port rows; it was mathematically safe for the router
@@ -245,10 +318,17 @@ function nodeSize(n){
    be a grid multiple, not each port's own absolute position), but it broke
    a harder, more literal requirement: every connection point has to sit
    exactly on a grid dot, and every wire has to line up with the grid,
-   corner to corner — not just be internally consistent with itself. */
+   corner to corner — not just be internally consistent with itself.
+   HDR_()/ROW_() are measured-then-ceiled constants (see above), not a
+   bare GRID assumption — they only equal GRID because the content that
+   determines them (11px text, an 8px port icon, a couple px of padding)
+   comfortably fits inside one grid unit once rounded up; if that content
+   ever needed more room, both would become 2*GRID everywhere at once,
+   and every consumer of them (this function, buildNode) would stay
+   correct without any further change. */
 function portPos(n, side, i){
   const s=nodeSize(n);
-  return { x: n.x + (side==='in'?0:s.w), y: n.y + GRID*(1+i) };
+  return { x: n.x + (side==='in'?0:s.w), y: n.y + HDR_() + i*ROW_() };
 }
 /* a wire that does not travel strictly left-to-right is a feedback wire:
    it carries the PREVIOUS scan's value. Because every forward wire strictly
