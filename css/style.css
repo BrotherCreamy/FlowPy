@@ -199,14 +199,15 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node .hd,
 .node.k-FB .hd,.node.k-F .hd,.node.k-io .hd,.node.k-var .hd,.node.k-const .hd{
   background-color:transparent;background-image:linear-gradient(var(--ntitle),var(--ntitle));
-  background-size:100% 14px;background-repeat:no-repeat;background-position:top;
+  background-size:100% 10px;background-repeat:no-repeat;background-position:top;
   align-items:flex-start;padding-top:1px;font-size:11px;
   color:#f2f3f5;border:none;border-radius:0;font-weight:300;letter-spacing:.2px}
 .node .hd .badge,
 .node.k-FB .hd .badge,.node.k-F .hd .badge{
   background:transparent;color:#f2f3f5;border:calc(1px*var(--iz)) solid #f2f3f5;border-radius:0;font-weight:700;
   font-size:9px;padding:1px 2px}
-.node .plabel{color:var(--ntxt);opacity:.7}
+.node .plabel{color:var(--ntxt);opacity:.7;font-size:11px}
+.node .val{font-size:11px}
 .node .pfield input{background:#fff;border:calc(1px*var(--iz)) solid var(--ntitle);color:#1b1d20}
 .node .hd .ttl-edit{background:var(--ntitle);border:calc(1px*var(--iz)) solid #f2f3f5;color:#f2f3f5}
 /* the block's own name — the dominant, large-scale text on the canvas,
@@ -232,13 +233,15 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
    only the inward half; the half that would poke out past the edge is
    simply not drawn, so the port reads as a flush notch, not a bead
    straddling the boundary, while remaining just as easy to grab as before.
-   Size is deliberately EVEN (12px, not 11) — an odd width centred via an
+   Size is deliberately EVEN (8px) — an odd width centred via an
    integer left offset (-N) always lands its middle at N+0.5, not N, which
    put the 50% clip boundary — and so the flush edge — half a pixel off the
    true block edge (invisible under the old blurry transform-scaled
    rendering, obvious once #nodes switched to crisp `zoom` layout: a visible
-   gap on the in-port side, a visible overhang on the out-port side). */
-.port{width:12px;height:12px;background:transparent;border:none;border-radius:0;box-shadow:none;position:absolute}
+   gap on the in-port side, a visible overhang on the out-port side). Offset
+   in editor.js's buildNode() must stay exactly half of this (-4px) to keep
+   the centre on the grid dot. */
+.port{width:8px;height:8px;background:transparent;border:none;border-radius:0;box-shadow:none;position:absolute}
 .port::before{content:'';position:absolute;inset:0;background:var(--nport);border-radius:50%}
 .port[data-s="in"]::before{clip-path:inset(0 0 0 50%)}
 .port[data-s="out"]::before{clip-path:inset(0 50% 0 0)}
