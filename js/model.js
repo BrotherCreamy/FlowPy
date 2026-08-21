@@ -186,12 +186,23 @@ function newType(kind){
 }
 
 /* ---------- geometry (everything lives on the grid) --------------- */
-const GRID=20;
-const MINGAP=GRID;        // a downstream block sits at least one unit clear of its source
-const LEFT_MARGIN=2*GRID; // every dataflow root (nothing forward-feeds it) aligns to this x — no free-floating starts
-const TOP_MARGIN=2*GRID;  // row 0 starts here
-const VGAP=GRID;          // vertical clearance between rows
-const VPAD=GRID/2;        // block's own top/bottom edge sits half a grid unit off the port grid — see portPos()/layoutY() below
+/* GRID is the fine positioning lattice — block corners, port positions,
+   and wire routing all live on it, and (per explicit spec) a block's
+   corners can now land on ANY multiple of GRID, not just every other
+   one. LANE is the old GRID (double this one) kept as its own name for
+   every constant that's really about visual rhythm/clearance rather than
+   the positioning lattice itself — block-to-block spacing, wire lanes,
+   canvas margins — so halving GRID doesn't also halve those on its own;
+   they're expressed as multiples of LANE specifically so their PIXEL
+   values stay exactly what they were before this file went to a finer
+   grid. */
+const GRID=10;
+const LANE=2*GRID;
+const MINGAP=LANE;        // a downstream block sits at least one unit clear of its source
+const LEFT_MARGIN=2*LANE; // every dataflow root (nothing forward-feeds it) aligns to this x — no free-floating starts
+const TOP_MARGIN=2*LANE;  // row 0 starts here
+const VGAP=LANE;          // vertical clearance between rows
+const VPAD=GRID;          // gap between the title bar's own bottom edge and the first port row — see portPos()/layoutY() below
 const snap = v => Math.round(v/GRID)*GRID;
 
 /* ---------- content measurement — sizing happens BEFORE rendering ---
@@ -254,7 +265,7 @@ function ROW_(){ return _ROW===null ? (_ROW=computeROW()) : _ROW; }
 function invalidateSizeCache(){ _HDR=null; _ROW=null; }
 const PORT_SIZE=8, PORT_GAP=8;       // css .port width + the icon-to-label gap within a row (css .prow{gap:8px}) — keep in sync
 const MEASURE_SLOP=2;                // canvas measureText() and actual DOM text layout don't agree to the sub-pixel; a small margin keeps the ceil() snap from landing exactly on the edge of clipping
-const ROW_HPAD=6, ROW_MINGAP=GRID;   // body's own left/right inset, and the minimum daylight between the ins/outs columns when a block has both
+const ROW_HPAD=6, ROW_MINGAP=LANE;   // body's own left/right inset, and the minimum daylight between the ins/outs columns when a block has both
 function portsOf(n){
   if(n.k==='blk'){ const t=typeOf(n.type); if(!t) return {ins:[],outs:[]};
     return {ins:(t.ins||[]).slice(), outs:(t.outs||[]).slice()}; }
@@ -317,13 +328,15 @@ function rowContentWidth(pt){
 
    Rounding the whole natural sum up to one GRID unit in one step (same
    as nodeSize()'s own width, and the very first sizing rule this file
-   ever established) is what keeps h a whole GRID multiple — required so
-   the block's bottom edge lands at the same half-grid phase VPAD put the
-   top edge at (adding any WHOLE GRID multiple to a half-grid value keeps
-   it half-grid, no matter which multiple). The rounding remainder IS the
-   visible bottom breathing room; no second, separately-reserved VPAD term
-   is needed the way an earlier version of this function used, which
-   forced every block a full extra GRID unit taller than necessary. */
+   ever established) is what keeps h a whole GRID multiple, which is all
+   that's required now that block corners can land on any grid point —
+   n.y is already GRID-exact (layoutY()) and adding a GRID-exact h keeps
+   n.y+h GRID-exact too, with no need for the top/bottom edges to match
+   any particular PHASE the way they did before grid density doubled.
+   The rounding remainder IS the visible bottom breathing room; no
+   second, separately-reserved VPAD term is needed the way an earlier
+   version of this function used, which forced every block a full extra
+   LANE taller than necessary. */
 function blockH(n){
   const p=portsOf(n), rows=Math.max(p.ins.length,p.outs.length,1);
   const trailing=hasField(n) ? ROW_() : Math.max(PORT_SIZE,natRow()/2);
@@ -350,41 +363,30 @@ function nodeSize(n){
    (see editor.js's pfield positioning) rather than a dedicated row below
    it — CONST only ever has one port and one field, so there's nothing to
    separate them for. */
-/* port centres land exactly on a grid intersection — no per-port padding.
-   An earlier round added a half-grid PORT_PAD directly to each port's own
-   offset for visual breathing room; it was mathematically safe for the
-   router (which only ever needs the DIFFERENCE between two ports'
-   coordinates to be a grid multiple, not each port's own absolute
-   position), but it broke a harder, more literal requirement: every
-   connection point has to sit exactly on a grid dot, and every wire has
-   to line up with the grid, corner to corner — not just be internally
-   consistent with itself. HDR_()/ROW_() are measured-then-ceiled
-   constants (see above), not a bare GRID assumption — they only equal
-   GRID because the content that determines them (11px text, an 8px port
-   icon, a couple px of padding) comfortably fits inside one grid unit
-   once rounded up; if that content ever needed more room, both would
-   become 2*GRID everywhere at once, and every consumer of them (this
-   function, buildNode) would stay correct without any further change.
+/* port centres land exactly on a grid intersection — no per-port padding
+   needed to make that true, since block corners are themselves allowed
+   to be on ANY multiple of GRID (the whole point of this file's grid
+   being twice as fine as the visual LANE spacing — see the const block
+   above). HDR_()/ROW_() are measured-then-ceiled constants (see above),
+   not a bare GRID assumption — they only equal LANE (2*GRID) because the
+   content that determines them (11px text, an 8px port icon, a couple
+   px of padding) comfortably fits inside one LANE once rounded up to
+   GRID; if content ever needed more room, they'd become whatever whole
+   multiple of GRID it takes, and every consumer of them (this function,
+   buildNode) stays correct without any further change.
 
-   VPAD below is a DIFFERENT thing from the old PORT_PAD, applied at a
-   different layer: it offsets the BLOCK's own rendered box (n.y, and
-   nodeSize's h) by half a grid so the block's top/bottom edges land
-   halfway between grid lines instead of on them, while every port's OWN
-   absolute y stays exactly where it always was — HDR_()+i*ROW_() past
-   the row's grid-aligned reference line (see layoutY() below, which
-   assigns n.y = <grid-aligned reference> - HDR_() - VPAD specifically so
-   the +HDR_()+VPAD here cancels back to that same reference for i=0).
-
-   The title block itself is exactly HDR_() (one GRID unit) tall,
-   starting flush at n.y — no gap before it, so n.y's own half-grid
-   offset shows up entirely as the TITLE simply not being grid-aligned,
-   not as visible padding above it. The VPAD half-grid instead sits
-   AFTER the title (title's bottom edge, itself at n.y+HDR_() and so
-   also half-grid, to the next grid point below it — i.e. to port 0) —
-   see .body's margin-top in style.css. That's deliberate, not
-   incidental: putting the breathing room after the header rather than
-   before it is what gives the first row's port/label real clearance
-   from the title bar, instead of landing flush against it. */
+   Row i's y is n.y + VPAD + HDR_() + i*ROW_(): the title block is
+   exactly HDR_() tall, starting flush at n.y (no gap before it); VPAD —
+   now just one GRID unit, not a half-grid offset the way it used to be
+   before block corners could land on any grid point — is the gap AFTER
+   the title, between its bottom edge and the first row, which is what
+   gives the first row's port/label real clearance from the title bar
+   instead of landing flush against it (see .body's margin-top in
+   style.css). n.y itself is simply this row's accumulated position
+   (layoutY() below) — GRID-exact by construction, no offset/cancelling
+   needed against it now that a block's own top/bottom edges no longer
+   have to satisfy a stricter "same half-grid phase" requirement than
+   the ports inside them do. */
 function portPos(n, side, i){
   const s=nodeSize(n);
   return { x: n.x + (side==='in'?0:s.w), y: n.y + VPAD + HDR_() + i*ROW_() };
@@ -531,7 +533,7 @@ function corridorGap(graph,s,n,prior,rowOf){
     }
   }
   const extra=Math.max(0,branches-1)+bentOther+crossing;
-  return extra>0 ? MINGAP+extra*GRID : MINGAP;
+  return extra>0 ? MINGAP+extra*LANE : MINGAP;
 }
 function layoutX(graph){
   const order=topoForwardOrder(graph);
@@ -623,17 +625,16 @@ function layoutY(graph){
   // increment is exactly one real grid unit of clearance between one
   // block's rendered bottom edge and the next block's rendered top edge.
   for(const n of graph.nodes){ const r=rowOf[n.id]; rowH[r]=Math.max(rowH[r]||0, blockH(n)); }
-  // y must stay a GRID multiple at every step — it's what portPos()'s
-  // n.y+VPAD+HDR_()+i*ROW_() cancels VPAD back against, so ports land
-  // exactly on a grid dot. Starting at TOP_MARGIN+VPAD looked tempting
-  // (would've put the very first block's edge back at the old TOP_MARGIN)
-  // but permanently shifts every rowY off-grid by VPAD, breaking every
-  // port in the graph — caught by the off-grid-port regression check
-  // reporting 26 violations, not by inspection.
+  // Now that block corners can land on ANY multiple of GRID (not just
+  // every other one — the whole point of doubling grid density), n.y is
+  // just this row's accumulated position directly, no offset needed:
+  // blockH() is already GRID-exact, VGAP is a whole number of GRID units
+  // (it's LANE), and TOP_MARGIN too, so rowY stays GRID-exact through the
+  // entire accumulation with nothing to cancel against.
   const rowY={}; let y=TOP_MARGIN;
   const maxRow=Object.keys(rowH).reduce((m,r)=>Math.max(m,+r),-1);
   for(let r=0;r<=maxRow;r++){ rowY[r]=y; y+=(rowH[r]||GRID)+VGAP; }
-  for(const n of graph.nodes) n.y=rowY[rowOf[n.id]]-VPAD;
+  for(const n of graph.nodes) n.y=rowY[rowOf[n.id]];
 }
 /* w.back is a structural fact, decided once when the wire is made (see
    connect() in editor.js) and stored — never re-derived from geometry here.

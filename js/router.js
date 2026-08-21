@@ -6,7 +6,15 @@
    route; turns are penalised so paths come out as long straight runs.
    ===================================================================== */
 const ROUTES={};            // wireId -> svg path string
-const TURN=4, USEDCOST=3, NEARCOST=0.3, PAD=12*GRID, MAXCELLS=60000, LEFTBIAS=0.15;
+/* PAD/MAXCELLS are expressed via LANE (model.js's old, coarser GRID),
+   not the fine GRID directly, so the search's own pixel-radius/effective
+   cell budget stay exactly what they were before the grid went twice as
+   fine — MAXCELLS in particular had to grow along with the RGRID
+   half-step experiment earlier this project for the identical reason
+   (same ~4x cell-count growth from halving the step size in 2D), and the
+   fix is the same shape here: preserve the effective search radius by
+   scaling the budget with it, not leave it accidentally quartered. */
+const TURN=4, USEDCOST=3, NEARCOST=0.3, PAD=12*LANE, MAXCELLS=240000, LEFTBIAS=0.15;
 
 function obstaclesOf(graph){
   return graph.nodes.map(n=>{ const s=nodeSize(n);
@@ -18,27 +26,29 @@ function blocked(obs,x,y){
   return false;
 }
 /* true for a cell that's clear (not actually inside any obstacle — callers
-   only ever run this on cells blocked() already passed) but within one grid
-   unit of one, on any side. Used as a SOFT cost in aStar below, the same
+   only ever run this on cells blocked() already passed) but within one
+   LANE of one, on any side. Used as a SOFT cost in aStar below, the same
    hard/soft shape already used for wire congestion (used[]/USEDCOST): a
    search that's simply forbidden from ever entering this margin would make
-   routing through a corridor exactly one grid unit wide (two blocks only
-   MINGAP/VGAP apart, which is also just one grid unit — see model.js)
+   routing through a corridor exactly one LANE wide (two blocks only
+   MINGAP/VGAP apart, which is also just one LANE — see model.js)
    impossible outright, since there'd be no legal cell left in it at all.
-   Taxing it instead means the search still PREFERS a full grid of daylight
+   Taxing it instead means the search still PREFERS a full lane of daylight
    whenever there's room to have it — which is what actually produces a
-   clean, consistent one-grid clearance in the common case — while still
+   clean, consistent one-lane clearance in the common case — while still
    finding a path (accepting the tighter squeeze) when a corridor genuinely
-   has no room to spare. */
+   has no room to spare. LANE, not the fine GRID, on purpose: this margin
+   is about visual clearance rhythm, same as MINGAP/VGAP, not the fine
+   positioning lattice itself. */
 function nearBlocked(obs,x,y){
   for(let k=0;k<obs.length;k++){ const o=obs[k];
-    /* strict inequalities: a cell sitting exactly GRID away from the edge —
+    /* strict inequalities: a cell sitting exactly LANE away from the edge —
        the target distance itself — must NOT be taxed, or the search just
        keeps pushing further out chasing a margin that keeps receding. Only
-       cells strictly closer than a full grid unit (and not already inside
+       cells strictly closer than a full lane (and not already inside
        the obstacle, which blocked() excludes before this ever runs) pay
        the tax. */
-    if(x>o.x0-GRID&&x<o.x1+GRID&&y>o.y0-GRID&&y<o.y1+GRID) return true; }
+    if(x>o.x0-LANE&&x<o.x1+LANE&&y>o.y0-LANE&&y<o.y1+LANE) return true; }
   return false;
 }
 /* --- min-heap ------------------------------------------------------- */
@@ -170,7 +180,7 @@ function quickPath(p1,p2,back){
     const mx=snap((p1.x+p2.x)/2);
     return polyPath(simplify([p1,{x:mx,y:p1.y},{x:mx,y:p2.y},p2]));
   }
-  const y=Math.min(p1.y,p2.y)-GRID*2;
+  const y=Math.min(p1.y,p2.y)-LANE*2;
   return polyPath(simplify([p1,{x:p1.x+GRID,y:p1.y},{x:p1.x+GRID,y},{x:p2.x-GRID,y},{x:p2.x-GRID,y:p2.y},p2]));
 }
 function markUsed(used,pts){
@@ -248,7 +258,7 @@ function edgeKey(a,b){
    connect, not explained away with a symbol — and a still-earlier sub-pixel
    version of this same idea, which only offset the exact contested cells
    and moved by a few px instead of a full grid step. */
-const LANESTEP=GRID, LANECAP=2;   // look at most 2 grid units either side before giving up on finding a clear lane
+const LANESTEP=LANE, LANECAP=2;   // look at most 2 lanes either side before giving up on finding a clear one
 function segsOf(wireId){
   const d=ROUTES[wireId]; if(!d) return [];
   const pts=parsePts(d), segs=[];
