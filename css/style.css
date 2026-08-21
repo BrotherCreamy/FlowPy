@@ -308,7 +308,7 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node .prow:not(:first-child){margin-top:calc(var(--row,20px) - var(--portsize,8px))}
 .node.k-const .prow{height:var(--row,20px)}
 .node .outs-col .prow{justify-content:flex-end}
-.node .plabel{position:absolute;top:50%;transform:translateY(-50%);color:var(--ntxt);opacity:.7;font-size:13.2px;white-space:nowrap;pointer-events:none}
+.node .plabel{position:absolute;top:50%;transform:translateY(-50%);color:var(--ntxt);opacity:.7;font-family:'Sono',var(--mono);font-weight:300;font-size:13.2px;white-space:nowrap;pointer-events:none}
 .node .ins-col .plabel{left:calc(var(--portsize,8px) + var(--portgap,8px))}
 .node .outs-col .plabel{right:calc(var(--portsize,8px) + var(--portgap,8px))}
 /* CONST is the only hasField block and always has exactly one port/row.

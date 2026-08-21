@@ -219,7 +219,7 @@ const snap = v => Math.round(v/GRID)*GRID;
 const MONO_STACK='ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono","IBM Plex Mono",Menlo,Consolas,"Liberation Mono",monospace';
 const TITLE_SIZE=13.2;                                // 11px * 1.2 — named so computeBadgeSize() below can derive from it rather than re-guessing the number
 const FONT_TITLE=`300 ${TITLE_SIZE}px Sono, ${MONO_STACK}`;   // matches css .hd .ttl / .hd-bar
-const FONT_LABEL=`13.2px ${MONO_STACK}`;             // matches css .plabel — 11px * 1.2
+const FONT_LABEL=FONT_TITLE;                          // matches css .plabel — same font/weight/size as the title, per explicit request
 let _measureCtx=null;
 function measureCtx(){
   if(!_measureCtx) _measureCtx=document.createElement('canvas').getContext('2d');
