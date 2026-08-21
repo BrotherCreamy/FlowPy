@@ -346,29 +346,6 @@ function nodeSize(n){
   const h=blockH(n);
   return {w,h};
 }
-/* How far a row's LABEL (not its port — the port has to stay exactly on
-   the grid line, no negotiating that) can be nudged below the grid line
-   before it would force blockH() to round up to the next GRID tier.
-   Ports are small (PORT_SIZE) and barely straddle the header/body
-   boundary; labels are usually taller (natRow()) and visibly straddle it
-   more — centering both on the same point is what a screenshot flagged
-   as looking "squished against the title bar." There's a hard ceiling on
-   how far this can go: blockH()'s normal (non-hasField) trailing budget
-   is only Math.max(PORT_SIZE,natRow()/2), and the block is only as tall
-   as that rounds up to — pushing the label further than the ROOM THAT
-   ROUNDING HAPPENED TO LEAVE would overflow past the block's own bottom
-   edge. This computes exactly how much of that rounding slack is safely
-   spare (a small margin held back, same caution as MEASURE_SLOP above),
-   applied uniformly to every row via a single global constant — safe for
-   every row, not just the last one, since only the trailing edge after
-   the truly last row is ever this tight; every other row has a full
-   spare --row of clearance to the next one. */
-function labelShift(){
-  const trailing=Math.max(PORT_SIZE,natRow()/2);
-  const hRef=Math.ceil((VPAD+HDR_()+trailing)/GRID)*GRID;
-  const spaceBelow=hRef-VPAD-HDR_();
-  return Math.max(0, spaceBelow-natRow()/2-1);
-}
 /* hasField blocks (CONST) share their field with the port's own row
    (see editor.js's pfield positioning) rather than a dedicated row below
    it — CONST only ever has one port and one field, so there's nothing to
@@ -392,12 +369,22 @@ function labelShift(){
    VPAD below is a DIFFERENT thing from the old PORT_PAD, applied at a
    different layer: it offsets the BLOCK's own rendered box (n.y, and
    nodeSize's h) by half a grid so the block's top/bottom edges land
-   halfway between grid lines instead of on them — while every port's
-   OWN absolute y stays exactly where it always was (still HDR_()+i*ROW_()
-   past the row's grid-aligned reference line, see layoutY() below, which
-   assigns n.y = <grid-aligned reference> - VPAD specifically so the +VPAD
-   here cancels back out). Ports remain grid-exact; only the box drawn
-   around them gets symmetric half-grid breathing room top and bottom. */
+   halfway between grid lines instead of on them, while every port's OWN
+   absolute y stays exactly where it always was — HDR_()+i*ROW_() past
+   the row's grid-aligned reference line (see layoutY() below, which
+   assigns n.y = <grid-aligned reference> - HDR_() - VPAD specifically so
+   the +HDR_()+VPAD here cancels back to that same reference for i=0).
+
+   The title block itself is exactly HDR_() (one GRID unit) tall,
+   starting flush at n.y — no gap before it, so n.y's own half-grid
+   offset shows up entirely as the TITLE simply not being grid-aligned,
+   not as visible padding above it. The VPAD half-grid instead sits
+   AFTER the title (title's bottom edge, itself at n.y+HDR_() and so
+   also half-grid, to the next grid point below it — i.e. to port 0) —
+   see .body's margin-top in style.css. That's deliberate, not
+   incidental: putting the breathing room after the header rather than
+   before it is what gives the first row's port/label real clearance
+   from the title bar, instead of landing flush against it. */
 function portPos(n, side, i){
   const s=nodeSize(n);
   return { x: n.x + (side==='in'?0:s.w), y: n.y + VPAD + HDR_() + i*ROW_() };

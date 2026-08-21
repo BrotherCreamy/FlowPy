@@ -186,32 +186,30 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 #crumb,#hint,.tabs .tab,#ghost .node{border-radius:0}
 
 /* ======= blocks: borderless — medium/dark-grey body, dark-grey title bar, no box outline ======= */
-/* padding-top:var(--vpad) is what makes the block's own rendered box
-   start half a grid unit off the port grid (model.js's VPAD/portPos/
-   layoutY — the box's total height already has a matching amount baked
-   in at the bottom by nodeSize(), via rounding up to the next whole GRID
-   unit — see blockH() in model.js for the full accounting of where every
-   pixel of that goes).
+/* The title block (.hd) is exactly one GRID unit tall and starts flush
+   at .node's own top edge — no padding on .node itself. .node's own top
+   edge (n.y in model.js) is still half a grid unit off the port grid
+   (VPAD), but that offset shows up entirely as the TITLE simply not
+   being grid-aligned, not as visible space before it: the half-grid
+   breathing room instead sits AFTER the title, between .hd's bottom edge
+   and the body's real content — see .body's margin-top below — which is
+   what gives the first row's port/label actual clearance from the title
+   bar instead of landing flush against it (port 0 lands exactly one
+   more grid line below .hd's own bottom edge, per model.js's portPos()).
 
    .node's own background is a hard-stop gradient (same trick as the
    header's own .hd-bar painted region below), not a flat fill: it only
-   starts painting at "100% height minus VPAD minus HDR_", bottom-
-   anchored, so the grey body colour covers everything from the header's
-   bottom edge down to the block's own bottom edge — INCLUDING the tight
-   space blockH()/the .prow rules below leave after the last row, which
-   isn't part of any element's own flow box — while leaving the VPAD
-   padding gap at the top fully unpainted (canvas shows straight through).
-   This is deliberate, not an oversight: .node's box has to span the full
-   padded height (VPAD included) for obstacle/hit-testing/drag purposes,
-   but painting that whole span with a flat grey fill made the body
-   colour appear ABOVE the title bar — backwards from the block's actual
-   structure (title, then body) — a real, confusing strip of "body"
-   colour rendering before the header even started. .hd paints its own
-   background over the region right below that (unaffected by any of
-   this — see its own rule below). */
-.node{color:var(--ntxt);border:none;border-radius:0;box-shadow:none;cursor:move;font-weight:300;padding-top:var(--vpad,10px);
+   starts painting at "100% height minus HDR_", bottom-anchored, so the
+   grey body colour covers everything from the header's bottom edge down
+   to the block's own bottom edge — including the VPAD gap after the
+   header (deliberately body-coloured, it's where the first row's content
+   breathes) and the tight trailing space blockH()/the .prow rules below
+   leave after the last row (which isn't part of any element's own flow
+   box). .hd paints its own background over the title region itself
+   (unaffected by any of this — see its own rule below). */
+.node{color:var(--ntxt);border:none;border-radius:0;box-shadow:none;cursor:move;font-weight:300;
   background:linear-gradient(var(--nbody),var(--nbody));background-repeat:no-repeat;background-position:bottom;
-  background-size:100% calc(100% - var(--vpad,10px) - var(--hdr,20px))}
+  background-size:100% calc(100% - var(--hdr,20px))}
 /* selection/drag/error states are hairline outlines (calc(px * --iz)) — the
    box itself stays borderless, these only ever appear as transient feedback.
    Resolves to an exact constant 1 device px at any zoom because #nodes is
@@ -286,21 +284,14 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
    CONST (the one hasField block) is the one exception, overridden below:
    its single row also hosts an editable value input, which needs the
    full --row it's always had, not the tight label/port sizing. */
-.node .body{position:relative;display:flex;flex-direction:row}
+.node .body{position:relative;display:flex;flex-direction:row;margin-top:var(--vpad,10px)}
 .node .ins-col,.node .outs-col{display:flex;flex-direction:column;flex:0 0 auto}
 .node .body-spacer{flex:1 1 auto}
 .node .prow{height:var(--portsize,8px);position:relative;display:flex;align-items:center;transform:translateY(-50%);overflow:visible}
 .node .prow:not(:first-child){margin-top:calc(var(--row,20px) - var(--portsize,8px))}
 .node.k-const .prow{height:var(--row,20px)}
 .node .outs-col .prow{justify-content:flex-end}
-/* nudged down from the true grid line by --labelshift (model.js's
-   labelShift()) — the PORT stays exactly on the line (has to, for wire
-   routing), but the label is purely cosmetic and doesn't, so it's pulled
-   down as far as the block's own rounding slack safely allows without
-   overflowing past the bottom edge — reduces, doesn't eliminate, how much
-   it visually straddles the header/body boundary; see labelShift()'s own
-   comment for why it can't be pulled down further than this. */
-.node .plabel{position:absolute;top:calc(50% + var(--labelshift,0px));transform:translateY(-50%);color:var(--ntxt);opacity:.7;font-size:11px;white-space:nowrap;pointer-events:none}
+.node .plabel{position:absolute;top:50%;transform:translateY(-50%);color:var(--ntxt);opacity:.7;font-size:11px;white-space:nowrap;pointer-events:none}
 .node .ins-col .plabel{left:calc(var(--portsize,8px) + var(--portgap,8px))}
 .node .outs-col .plabel{right:calc(var(--portsize,8px) + var(--portgap,8px))}
 /* CONST is the only hasField block and always has exactly one port/row, so
