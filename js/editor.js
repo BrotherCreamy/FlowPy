@@ -292,8 +292,10 @@ function buildNode(n){
   d.style.cssText=`left:${n.x}px;top:${n.y}px;width:${s.w}px;height:${s.h}px`;
   const t = n.k==='blk'?typeOf(n.type):null;
   const hd=el('div',{cls:'hd'});
-  if(t) hd.append(el('span',{cls:'badge'},t.kind));
-  hd.append(titleEl(n));
+  const hdBar=el('div',{cls:'hd-bar'});   // painted bar sized to its own content (CSS), inside hd's fixed reserved grid slot
+  if(t) hdBar.append(el('span',{cls:'badge'},t.kind));
+  hdBar.append(titleEl(n));
+  hd.append(hdBar);
   d.append(hd);
   const body=el('div',{cls:'body'});
   const gg=G();
@@ -303,13 +305,13 @@ function buildNode(n){
     const port=el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:-4px;top:${y-4}px`,'data-n':n.id,'data-s':'in','data-i':i,title:isVarBox?'set '+n.varName:pt.name+':'+pt.type});
     hookValueHover(port,inputKeyFn(n.id,i));
     body.append(port);
-    if(pt.name){ const lbl=el('div',{cls:'plabel',style:`left:12px;top:${y-7}px`},pt.name);
+    if(pt.name){ const lbl=el('div',{cls:'plabel',style:`left:12px;top:${y}px`},pt.name);
       hookValueHover(lbl,inputKeyFn(n.id,i)); body.append(lbl); } });
   p.outs.forEach((pt,i)=>{
     const y=GRID*(1+i)-HDR;
     const wired=isVarBox&&gg.wires.some(w=>w.f[0]===n.id&&w.f[1]===i);
     body.append(el('div',{cls:'port'+(pt.type==='bool'?' bool':'')+(wired?' wired':''),style:`left:${s.w-4}px;top:${y-4}px`,'data-n':n.id,'data-s':'out','data-i':i,title:isVarBox?'get '+n.varName:pt.name+':'+pt.type}));
-    if(pt.name) body.append(el('div',{cls:'plabel',style:`right:12px;top:${y-7}px;text-align:right`},pt.name)); });
+    if(pt.name) body.append(el('div',{cls:'plabel',style:`right:12px;top:${y}px;text-align:right`},pt.name)); });
   if(hasField(n)){
     const rows=Math.max(p.ins.length,p.outs.length,1);
     const f=el('input',{value:String(n.value),title:'python literal'});
