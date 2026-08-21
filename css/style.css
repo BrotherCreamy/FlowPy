@@ -73,8 +73,7 @@ label{font-size:11px;color:var(--fg2)}
 .palitem:hover .e{opacity:1}
 
 /* canvas */
-#cwrap{flex:1;position:relative;overflow:hidden;background:
-  radial-gradient(circle at 1px 1px, #2b3340 1px, transparent 0) 0 0/20px 20px, #14181f;cursor:default}
+#cwrap{flex:1;position:relative;overflow:hidden;background:#14181f;cursor:default}
 /* #world only ever pans (translate) now — zoom is split per-layer below, since
    the two layers need different scaling mechanisms to both stay crisp. */
 #world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
@@ -240,15 +239,19 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node .hd,
 .node.k-FB .hd,.node.k-F .hd,.node.k-io .hd,.node.k-var .hd,.node.k-const .hd{
   height:var(--hdr,20px);position:relative;background:var(--ntitle);border:none;padding:0;overflow:visible}
+/* bottom:0 (not just top:0) so this stretches across .hd's FULL reserved
+   height — align-items:center then centres the badge+title vertically in
+   the whole title bar, not just within hd-bar's own shorter natural
+   (padding+line-height) box. */
 .node .hd-bar{
-  position:absolute;left:0;top:0;width:100%;box-sizing:border-box;
+  position:absolute;left:0;top:0;right:0;bottom:0;box-sizing:border-box;
   display:flex;align-items:center;gap:5px;padding:1px 6px;
-  background:var(--ntitle);color:#f2f3f5;font-weight:300;letter-spacing:.2px;font-size:11px;
+  background:var(--ntitle);color:#f2f3f5;font-weight:300;letter-spacing:.2px;font-size:13.2px;
   overflow:hidden}
 .node .hd .badge,
 .node.k-FB .hd .badge,.node.k-F .hd .badge{
-  background:transparent;color:#f2f3f5;border:calc(1px*var(--iz)) solid #f2f3f5;border-radius:0;font-weight:700;
-  font-size:9px;line-height:1;padding:1px 2px;flex:0 0 auto}
+  background:transparent;color:#f2f3f5;border:calc(1px*var(--iz)) solid #f2f3f5;border-radius:0;
+  font-family:var(--mono);font-weight:700;font-size:12px;line-height:1;padding:1px 2px;flex:0 0 auto}
 .node .hd .ttl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;cursor:text}
 /* body layout: a real hierarchy, not individually-computed absolute
    positions. .prow is exactly one measured row tall (--row, see model.js
@@ -291,7 +294,7 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node .prow:not(:first-child){margin-top:calc(var(--row,20px) - var(--portsize,8px))}
 .node.k-const .prow{height:var(--row,20px)}
 .node .outs-col .prow{justify-content:flex-end}
-.node .plabel{position:absolute;top:50%;transform:translateY(-50%);color:var(--ntxt);opacity:.7;font-size:11px;white-space:nowrap;pointer-events:none}
+.node .plabel{position:absolute;top:50%;transform:translateY(-50%);color:var(--ntxt);opacity:.7;font-size:13.2px;white-space:nowrap;pointer-events:none}
 .node .ins-col .plabel{left:calc(var(--portsize,8px) + var(--portgap,8px))}
 .node .outs-col .plabel{right:calc(var(--portsize,8px) + var(--portgap,8px))}
 /* CONST is the only hasField block and always has exactly one port/row, so

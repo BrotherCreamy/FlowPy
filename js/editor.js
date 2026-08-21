@@ -44,9 +44,6 @@ function applyCam(){ world.style.transform=`translate(${cam.x}px,${cam.y}px)`;
      the gesture settles. */
   wiresSvg.style.transform=`scale(${cam.z})`;
   nodesL.style.zoom=cam.z;
-  const g=GRID*cam.z;
-  cwrap.style.backgroundSize=g+'px '+g+'px, auto';
-  cwrap.style.backgroundPosition=cam.x+'px '+cam.y+'px, 0 0';
   /* keeps every hairline (--iz-scaled outlines, and the crossing-gap length
      in router.js) a constant screen size regardless of zoom — see the --iz
      comment in css/style.css. */

@@ -217,9 +217,9 @@ const snap = v => Math.round(v/GRID)*GRID;
    measure text without ever attaching an element to the page), not a
    render-then-measure-then-relayout cycle. */
 const MONO_STACK='ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono","IBM Plex Mono",Menlo,Consolas,"Liberation Mono",monospace';
-const FONT_TITLE=`300 11px Sono, ${MONO_STACK}`;   // matches css .hd .ttl / .hd-bar
-const FONT_LABEL=`11px ${MONO_STACK}`;             // matches css .plabel
-const FONT_BADGE=`700 9px ${MONO_STACK}`;          // matches css .hd .badge
+const FONT_TITLE=`300 13.2px Sono, ${MONO_STACK}`;   // matches css .hd .ttl / .hd-bar — 11px * 1.2
+const FONT_LABEL=`13.2px ${MONO_STACK}`;             // matches css .plabel — 11px * 1.2
+const FONT_BADGE=`700 12px ${MONO_STACK}`;           // matches css .hd .badge — a bit bigger than the uniform 20% bump, same family as the title/label text
 let _measureCtx=null;
 function measureCtx(){
   if(!_measureCtx) _measureCtx=document.createElement('canvas').getContext('2d');
