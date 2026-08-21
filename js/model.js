@@ -217,9 +217,9 @@ const snap = v => Math.round(v/GRID)*GRID;
    measure text without ever attaching an element to the page), not a
    render-then-measure-then-relayout cycle. */
 const MONO_STACK='ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono","IBM Plex Mono",Menlo,Consolas,"Liberation Mono",monospace';
-const FONT_TITLE=`300 13.2px Sono, ${MONO_STACK}`;   // matches css .hd .ttl / .hd-bar — 11px * 1.2
+const TITLE_SIZE=13.2;                                // 11px * 1.2 — named so computeBadgeSize() below can derive from it rather than re-guessing the number
+const FONT_TITLE=`300 ${TITLE_SIZE}px Sono, ${MONO_STACK}`;   // matches css .hd .ttl / .hd-bar
 const FONT_LABEL=`13.2px ${MONO_STACK}`;             // matches css .plabel — 11px * 1.2
-const FONT_BADGE=`300 12px Sono, ${MONO_STACK}`;      // matches css .hd .badge — same font as the title (Sono), smaller point size to fit the rectangle. Weight has to stay 300, same as the title: Sono only ships that one weight, so anything else (e.g. a bold badge) falls back to a browser-synthesized fake-bold, the exact thing this project's font-loading comments already reject.
 let _measureCtx=null;
 function measureCtx(){
   if(!_measureCtx) _measureCtx=document.createElement('canvas').getContext('2d');
@@ -257,12 +257,39 @@ function natRow(){ return Math.max(textLineHeight(FONT_LABEL),PORT_SIZE)+ROW_VPA
 function computeROW(){ return Math.ceil(natRow()/GRID)*GRID; }
 function HDR_(){ return _HDR===null ? (_HDR=computeHDR()) : _HDR; }
 function ROW_(){ return _ROW===null ? (_ROW=computeROW()) : _ROW; }
+/* the badge's own font-size — same font/weight as the title (Sono,
+   300), just scaled DOWN enough that the badge's own rectangle (its
+   text line-height plus its own padding+border — see badgeH() below)
+   comes out roughly the same height as the title text's own real glyph
+   extent, not smaller or larger. Computed, not guessed: measures the
+   title's real line-height at TITLE_SIZE, works out how much smaller a
+   Sono string needs to render to leave exactly badgeH()'s non-text
+   overhead (padding+border) of room within that same span, assuming
+   line-height scales linearly with font-size for a fixed font (true for
+   any real typeface's ascent/descent metrics). */
+/* badge padding/border, in px — deliberate design spacing (like HD_VPAD/
+   ROW_VPAD above), not measurements. Kept as named constants specifically
+   so computeBadgeSize()/badgeWidth()/badgeH() (below) and the CSS badge
+   rule in style.css can never drift apart the way JS/CSS constants have
+   before in this file (see the PORT_GAP bug note elsewhere) — if these
+   ever change, they only need to change in one place here, matched once
+   in the CSS padding declaration. */
+const BADGE_VPAD=0, BADGE_HPAD=1, BADGE_BORDER=1;
+let _BADGE_SIZE=null;
+function computeBadgeSize(){
+  const titleLH=textLineHeight(FONT_TITLE);
+  const overhead=2*BADGE_VPAD+2*BADGE_BORDER;   // badge's own padding + nominal border, top+bottom — must match badgeH()'s own formula
+  const targetLH=Math.max(4,titleLH-overhead);
+  return Math.round(targetLH/titleLH*TITLE_SIZE*10)/10;
+}
+function BADGE_SIZE_(){ return _BADGE_SIZE===null ? (_BADGE_SIZE=computeBadgeSize()) : _BADGE_SIZE; }
+function FONT_BADGE(){ return `300 ${BADGE_SIZE_()}px Sono, ${MONO_STACK}`; }
 /* called once fonts are confirmed loaded (see editor.js bootstrap) — the
    very first layout pass may have measured Sono's fallback instead of
    Sono itself; this clears the cache so the next render re-measures for
    real and self-corrects, rather than leaving a slightly-wrong constant
    baked in for the rest of the session. */
-function invalidateSizeCache(){ _HDR=null; _ROW=null; }
+function invalidateSizeCache(){ _HDR=null; _ROW=null; _BADGE_SIZE=null; }
 const PORT_SIZE=8, PORT_GAP=8;       // css .port width + the icon-to-label gap within a row (css .prow{gap:8px}) — keep in sync
 const MEASURE_SLOP=2;                // canvas measureText() and actual DOM text layout don't agree to the sub-pixel; a small margin keeps the ceil() snap from landing exactly on the edge of clipping
 const ROW_HPAD=6, ROW_MINGAP=LANE;   // body's own left/right inset, and the minimum daylight between the ins/outs columns when a block has both
@@ -294,20 +321,19 @@ function nodeKindClass(n){
 }
 function hasField(n){ return n.k==='const'; }
 /* badge width: real text width plus its own padding/border, matching css
-   .hd .badge exactly (padding:1px 2px, border:1px). Only blk nodes with a
-   type ever render one. */
+   .hd .badge exactly. Only blk nodes with a type ever render one. */
 function badgeWidth(n){
   if(n.k!=='blk') return 0;
   const t=typeOf(n.type); if(!t) return 0;
-  return textWidth(t.kind,FONT_BADGE)+2*2+2*1;
+  return textWidth(t.kind,FONT_BADGE())+2*BADGE_HPAD+2*BADGE_BORDER;
 }
-/* badge's own real rendered height (padding:1px top/bottom + a nominal
-   1px border top/bottom, matching css .hd .badge exactly) — used to
-   inset the badge from the title bar's left edge by exactly the same
-   amount it's already inset from the top/bottom via centering (see
-   .hd-bar's padding-left in style.css), rather than an unrelated,
-   independently-chosen left padding value. */
-function badgeH(){ return textLineHeight(FONT_BADGE)+2*1+2*1; }
+/* badge's own real rendered height (padding+nominal border, top+bottom,
+   matching css .hd .badge exactly) — used to inset the badge from the
+   title bar's left edge by exactly the same amount it's already inset
+   from the top/bottom via centering (see .hd-bar's padding-left in
+   style.css), rather than an unrelated, independently-chosen left
+   padding value. */
+function badgeH(){ return textLineHeight(FONT_BADGE())+2*BADGE_VPAD+2*BADGE_BORDER; }
 /* half the leftover space between the title bar's own height and the
    badge's real rendered height — that's exactly how far align-items:
    center already pushes the badge down from the bar's top edge, so
