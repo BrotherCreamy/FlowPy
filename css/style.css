@@ -236,7 +236,7 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .node .body-spacer{flex:1 1 auto}
 .node .prow{height:var(--row,20px);display:flex;align-items:center;gap:8px;transform:translateY(-50%);overflow:visible}
 .node .outs-col .prow{justify-content:flex-end}
-.node .plabel{color:var(--ntxt);opacity:.7;font-size:11px;white-space:nowrap;pointer-events:none}
+.node .plabel{position:static;color:var(--ntxt);opacity:.7;font-size:11px;white-space:nowrap;pointer-events:none}
 /* CONST is the only hasField block and always has exactly one port/row, so
    top:1px + bottom:1px (auto-filling whatever --row actually measures to,
    not a hardcoded height that could drift out of sync with it) lands the
@@ -273,16 +273,23 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
    (invisible under the old blurry transform-scaled rendering, obvious once
    #nodes switched to crisp `zoom` layout: a visible gap on the in-port
    side, a visible overhang on the out-port side). The port is a normal
-   flex child of its row now (not absolutely positioned) — margin-left/
-   -right (half its own width, negative) is what pulls it out past its
-   column's own edge to straddle the block boundary, same idea as before
-   but expressed as a real box-model relationship instead of a computed
-   left:Npx guess. position:relative (not static) only so its own ::before
-   overlay below still anchors to ITself via inset:0, not the nearest
-   positioned ancestor. */
+   flex child of its row now (not absolutely positioned) — pulled out past
+   its column's own edge to straddle the block boundary via
+   transform:translateX (half its own width) rather than a negative
+   margin, since transform never affects layout flow or sizing, only
+   where the box paints — same mechanism already used to centre each row
+   on its own top edge, just applied on the other axis. (The actual bug
+   that made labels overlap ports — rowWidth collapsing to just the
+   port's own footprint — turned out to be .plabel still carrying
+   position:absolute from an old dead rule, unrelated to this
+   margin/transform choice; see .plabel below. This transform is kept as
+   the more predictable of the two, not because the margin was ever
+   proven to be the cause.) position:relative (not static) only so the
+   ::before overlay below still anchors to ITself via inset:0, not the
+   nearest positioned ancestor. */
 .port{width:8px;height:8px;background:transparent;border:none;border-radius:0;box-shadow:none;position:relative;flex:0 0 auto}
-.port[data-s="in"]{margin-left:-4px}
-.port[data-s="out"]{margin-right:-4px}
+.port[data-s="in"]{transform:translateX(-4px)}
+.port[data-s="out"]{transform:translateX(4px)}
 .port::before{content:'';position:absolute;inset:0;background:var(--nport);border-radius:50%}
 .port[data-s="in"]::before{clip-path:inset(0 0 0 50%)}
 .port[data-s="out"]::before{clip-path:inset(0 50% 0 0)}
