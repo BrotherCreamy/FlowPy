@@ -219,7 +219,7 @@ const snap = v => Math.round(v/GRID)*GRID;
 const MONO_STACK='ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono","IBM Plex Mono",Menlo,Consolas,"Liberation Mono",monospace';
 const FONT_TITLE=`300 13.2px Sono, ${MONO_STACK}`;   // matches css .hd .ttl / .hd-bar — 11px * 1.2
 const FONT_LABEL=`13.2px ${MONO_STACK}`;             // matches css .plabel — 11px * 1.2
-const FONT_BADGE=`700 12px ${MONO_STACK}`;           // matches css .hd .badge — a bit bigger than the uniform 20% bump, same family as the title/label text
+const FONT_BADGE=`300 12px Sono, ${MONO_STACK}`;      // matches css .hd .badge — same font as the title (Sono), smaller point size to fit the rectangle. Weight has to stay 300, same as the title: Sono only ships that one weight, so anything else (e.g. a bold badge) falls back to a browser-synthesized fake-bold, the exact thing this project's font-loading comments already reject.
 let _measureCtx=null;
 function measureCtx(){
   if(!_measureCtx) _measureCtx=document.createElement('canvas').getContext('2d');
@@ -301,6 +301,20 @@ function badgeWidth(n){
   const t=typeOf(n.type); if(!t) return 0;
   return textWidth(t.kind,FONT_BADGE)+2*2+2*1;
 }
+/* badge's own real rendered height (padding:1px top/bottom + a nominal
+   1px border top/bottom, matching css .hd .badge exactly) — used to
+   inset the badge from the title bar's left edge by exactly the same
+   amount it's already inset from the top/bottom via centering (see
+   .hd-bar's padding-left in style.css), rather than an unrelated,
+   independently-chosen left padding value. */
+function badgeH(){ return textLineHeight(FONT_BADGE)+2*1+2*1; }
+/* half the leftover space between the title bar's own height and the
+   badge's real rendered height — that's exactly how far align-items:
+   center already pushes the badge down from the bar's top edge, so
+   using the same value as the bar's own left padding makes the gap on
+   all three non-title sides of the badge equal, by construction, not by
+   eyeballing a matching pixel value. */
+function badgeInset(){ return Math.max(0,(HDR_()-badgeH())/2); }
 /* one port row's natural content width: the port icon, the gap to its
    label, and the label's real measured text width. Zero if the row has
    no name (an unlabelled port still reserves its own icon-width column
@@ -349,7 +363,8 @@ function nodeSize(n){
   if(n.w){ w=n.w; }
   else{
     const badgeW=badgeWidth(n);
-    const titleW=(badgeW?badgeW+5:0)+textWidth(nodeTitle(n),FONT_TITLE)+2*6;      // +5 gap, +2*6 hd-bar padding, matching css
+    const hbarPad=badgeW?badgeInset()+6:2*6;   // badge-bearing kinds use badgeInset() on the left (css .k-FB/.k-F .hd-bar), everyone else the plain symmetric 6px
+    const titleW=(badgeW?badgeW+5:0)+textWidth(nodeTitle(n),FONT_TITLE)+hbarPad;      // +5 gap, matching css
     const insW=Math.max(0,...p.ins.map(rowContentWidth));
     const outsW=Math.max(0,...p.outs.map(rowContentWidth));
     const bodyW=(insW||outsW) ? insW+ROW_MINGAP+outsW+2*ROW_HPAD : 0;

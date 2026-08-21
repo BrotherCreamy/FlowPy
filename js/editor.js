@@ -63,6 +63,7 @@ function applySizeVars(){
   document.documentElement.style.setProperty('--vpad', VPAD+'px');
   document.documentElement.style.setProperty('--portsize', PORT_SIZE+'px');
   document.documentElement.style.setProperty('--portgap', PORT_GAP+'px');
+  document.documentElement.style.setProperty('--badgeinset', badgeInset()+'px');
 }
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{
   invalidateSizeCache(); applySizeVars(); renderGraph();
