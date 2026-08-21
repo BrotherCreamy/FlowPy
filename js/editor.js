@@ -63,6 +63,7 @@ function applyCam(){ world.style.transform=`translate(${cam.x}px,${cam.y}px)`;
 function applySizeVars(){
   document.documentElement.style.setProperty('--hdr', HDR_()+'px');
   document.documentElement.style.setProperty('--row', ROW_()+'px');
+  document.documentElement.style.setProperty('--vpad', VPAD+'px');
 }
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{
   invalidateSizeCache(); applySizeVars(); renderGraph();

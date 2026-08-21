@@ -24,7 +24,7 @@
      model.js HDR_()/ROW_()) — kept live by editor.js so every block in the
      DOM shares the exact same values the model used to compute port
      positions. 20px here is just the pre-JS fallback for the first paint. */
-  --hdr:20px; --row:20px;
+  --hdr:20px; --row:20px; --vpad:10px;
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
@@ -96,7 +96,7 @@ label{font-size:11px;color:var(--fg2)}
 
 .node{position:absolute;background:var(--bg2);border:1px solid var(--line2);border-radius:7px;
   box-shadow:0 3px 12px rgba(0,0,0,.45);user-select:none;font-size:12px}
-.node.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc),0 3px 16px rgba(79,163,255,.3)}
+.node.sel{border-color:var(--acc)}   /* box-shadow glow removed — no glowy business; the active selection indicator is the outline rule below */
 .node.moving{outline:1px dashed rgba(79,163,255,.7);outline-offset:3px}
 .node.err{border-color:var(--err)}
 .node .hd{height:20px;display:flex;align-items:center;gap:5px;padding:0 6px;border-radius:6px 6px 0 0;font-size:14px;
@@ -114,7 +114,13 @@ label{font-size:11px;color:var(--fg2)}
 .node.k-const .hd{background:linear-gradient(#242a33,#1a1f26)}
 .node .body{position:relative}  /* .node is borderless now (see the theme block below) — no border-compensating margin needed; ports/wires already land on the same grid point without it */
 .port{position:absolute;width:11px;height:11px;border-radius:50%;background:#0b0e13;border:2px solid var(--line2);cursor:crosshair;z-index:2}
-.port:hover,.port.tgt{border-color:var(--acc);background:var(--acc);box-shadow:0 0 8px var(--acc)}
+/* fully superseded by .port:hover::before below (the flush ::before overlay
+   is what's actually visible) — kept box-shadow:none/background:none
+   explicit rather than deleting the rule outright, so this stays correct
+   even if something later stops overriding every property it used to set
+   (see the .plabel dead-rule bug for why relying on file order alone is
+   fragile). */
+.port:hover,.port.tgt{background:none;box-shadow:none}
 .port.bool{border-radius:2px}
 .plabel{position:absolute;font-size:13px;line-height:1;color:var(--fg2);white-space:nowrap;pointer-events:none}
 .node .val{position:absolute;right:6px;font:10px/1 var(--mono);color:var(--fg2)}
@@ -161,7 +167,7 @@ pre.code{width:100%;font:11px/1.45 var(--mono);background:#0b0e13;border:1px sol
 #con .e{color:var(--err)} #con .w{color:var(--warn)} #con .i{color:var(--fg2)} #con .g{color:var(--ok)}
 #status{display:flex;align-items:center;gap:5px}
 .dot{width:8px;height:8px;border-radius:50%;background:#556}
-.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.dot.on{background:var(--ok)}
 .dot.busy{background:var(--warn)}
 .dot.err{background:var(--err)}
 
@@ -180,7 +186,15 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 #crumb,#hint,.tabs .tab,#ghost .node{border-radius:0}
 
 /* ======= blocks: borderless — medium/dark-grey body, dark-grey title bar, no box outline ======= */
-.node{background:var(--nbody);color:var(--ntxt);border:none;border-radius:0;box-shadow:none;cursor:move;font-weight:300}
+/* padding-top:var(--vpad) is the only thing that makes the block's own
+   rendered box start half a grid unit off the port grid (model.js's
+   VPAD/portPos/layoutY — the box's total height already has a matching
+   extra VPAD baked in at the bottom by nodeSize(), which shows up as
+   trailing space after .hd+.body's own natural (unchanged) content height
+   — border-box means padding-top eats into content height rather than
+   growing the box, so this alone reproduces both edges without needing a
+   second bottom-side rule). */
+.node{background:var(--nbody);color:var(--ntxt);border:none;border-radius:0;box-shadow:none;cursor:move;font-weight:300;padding-top:var(--vpad,10px)}
 /* selection/drag/error states are hairline outlines (calc(px * --iz)) — the
    box itself stays borderless, these only ever appear as transient feedback.
    Resolves to an exact constant 1 device px at any zoom because #nodes is
@@ -189,7 +203,7 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
    border/outline widths to a whole local CSS px before the transform ever
    applies, which used to leave this only an approximate, bounded hairline;
    that whole failure mode doesn't exist under `zoom`. */
-.node.sel{outline:calc(1px*var(--iz)) solid #fff;outline-offset:calc(3px*var(--iz))}
+.node.sel{outline:calc(1px*var(--iz)) solid #fff;outline-offset:calc(3px*var(--iz));box-shadow:none}
 .node.moving{outline:calc(1px*var(--iz)) dashed #fff;outline-offset:calc(3px*var(--iz))}
 .node.err{outline:calc(1px*var(--iz)) solid var(--err);outline-offset:calc(3px*var(--iz))}
 /* the header's own BOX stays the full reserved GRID unit tall (20px) — .body
@@ -294,7 +308,7 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 .port[data-s="in"]::before{clip-path:inset(0 0 0 50%)}
 .port[data-s="out"]::before{clip-path:inset(0 50% 0 0)}
 .port.bool::before{border-radius:2px}
-.port:hover::before,.port.tgt::before{background:var(--acc);box-shadow:0 0 calc(6px*var(--iz)) var(--acc)}
+.port:hover::before,.port.tgt::before{background:var(--acc)}
 /* wires: vector-effect keeps the stroke a constant 1 device px at any zoom —
    width is no longer subject to the #world scale() transform at all. the
    crossing-gap length (router.js gappedD) is handled separately since it's

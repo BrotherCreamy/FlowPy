@@ -191,6 +191,7 @@ const MINGAP=GRID;        // a downstream block sits at least one unit clear of 
 const LEFT_MARGIN=2*GRID; // every dataflow root (nothing forward-feeds it) aligns to this x — no free-floating starts
 const TOP_MARGIN=2*GRID;  // row 0 starts here
 const VGAP=GRID;          // vertical clearance between rows
+const VPAD=GRID/2;        // block's own top/bottom edge sits half a grid unit off the port grid — see portPos()/layoutY() below
 const snap = v => Math.round(v/GRID)*GRID;
 
 /* ---------- content measurement — sizing happens BEFORE rendering ---
@@ -291,6 +292,15 @@ function rowContentWidth(pt){
   if(!pt||!pt.name) return PORT_SIZE;
   return PORT_SIZE+PORT_GAP+textWidth(pt.name,FONT_LABEL);
 }
+/* HDR_()+rows*ROW_() is the block's port-bearing "reference" height: the
+   span row-to-row stacking (layoutY) and port y-coordinates (portPos) are
+   both anchored to, unaffected by VPAD below. Centralized here so the two
+   call sites can never drift apart the way the JS/CSS PORT_GAP constant
+   once did (see the earlier bug note for that). */
+function portRowsH(n){
+  const p=portsOf(n);
+  return HDR_()+Math.max(p.ins.length,p.outs.length,1)*ROW_();
+}
 function nodeSize(n){
   const p=portsOf(n), rows=Math.max(p.ins.length,p.outs.length,1);
   let w;
@@ -304,31 +314,41 @@ function nodeSize(n){
     w=Math.max(titleW,bodyW)+MEASURE_SLOP;
   }
   w=Math.ceil(w/GRID)*GRID;                          // width is a whole number of cells
-  let h=HDR_()+rows*ROW_();                          // header slot + one measured row per port
+  let h=portRowsH(n)+2*VPAD;   // reference height + symmetric half-grid breathing room top and bottom
   return {w,h};
 }
 /* hasField blocks (CONST) share their field with the port's own row
    (see editor.js's pfield positioning) rather than a dedicated row below
    it — CONST only ever has one port and one field, so there's nothing to
    separate them for. */
-/* port centres land exactly on a grid intersection — no PORT_PAD offset.
-   An earlier round added a half-grid PORT_PAD here for visual breathing
-   room above/below port rows; it was mathematically safe for the router
-   (which only ever needs the DIFFERENCE between two ports' coordinates to
-   be a grid multiple, not each port's own absolute position), but it broke
-   a harder, more literal requirement: every connection point has to sit
-   exactly on a grid dot, and every wire has to line up with the grid,
-   corner to corner — not just be internally consistent with itself.
-   HDR_()/ROW_() are measured-then-ceiled constants (see above), not a
-   bare GRID assumption — they only equal GRID because the content that
-   determines them (11px text, an 8px port icon, a couple px of padding)
-   comfortably fits inside one grid unit once rounded up; if that content
-   ever needed more room, both would become 2*GRID everywhere at once,
-   and every consumer of them (this function, buildNode) would stay
-   correct without any further change. */
+/* port centres land exactly on a grid intersection — no per-port padding.
+   An earlier round added a half-grid PORT_PAD directly to each port's own
+   offset for visual breathing room; it was mathematically safe for the
+   router (which only ever needs the DIFFERENCE between two ports'
+   coordinates to be a grid multiple, not each port's own absolute
+   position), but it broke a harder, more literal requirement: every
+   connection point has to sit exactly on a grid dot, and every wire has
+   to line up with the grid, corner to corner — not just be internally
+   consistent with itself. HDR_()/ROW_() are measured-then-ceiled
+   constants (see above), not a bare GRID assumption — they only equal
+   GRID because the content that determines them (11px text, an 8px port
+   icon, a couple px of padding) comfortably fits inside one grid unit
+   once rounded up; if that content ever needed more room, both would
+   become 2*GRID everywhere at once, and every consumer of them (this
+   function, buildNode) would stay correct without any further change.
+
+   VPAD below is a DIFFERENT thing from the old PORT_PAD, applied at a
+   different layer: it offsets the BLOCK's own rendered box (n.y, and
+   nodeSize's h) by half a grid so the block's top/bottom edges land
+   halfway between grid lines instead of on them — while every port's
+   OWN absolute y stays exactly where it always was (still HDR_()+i*ROW_()
+   past the row's grid-aligned reference line, see layoutY() below, which
+   assigns n.y = <grid-aligned reference> - VPAD specifically so the +VPAD
+   here cancels back out). Ports remain grid-exact; only the box drawn
+   around them gets symmetric half-grid breathing room top and bottom. */
 function portPos(n, side, i){
   const s=nodeSize(n);
-  return { x: n.x + (side==='in'?0:s.w), y: n.y + HDR_() + i*ROW_() };
+  return { x: n.x + (side==='in'?0:s.w), y: n.y + VPAD + HDR_() + i*ROW_() };
 }
 /* a wire that does not travel strictly left-to-right is a feedback wire:
    it carries the PREVIOUS scan's value. Because every forward wire strictly
@@ -559,11 +579,26 @@ function layoutRows(graph){
 function layoutY(graph){
   const rowOf=layoutRows(graph);
   const rowH={};
-  for(const n of graph.nodes){ const r=rowOf[n.id]; rowH[r]=Math.max(rowH[r]||0, nodeSize(n).h); }
+  // row stacking uses each node's port-bearing reference height (not the
+  // padded nodeSize().h) so rowY[r] is the grid-aligned line ports sit
+  // flush against — n.y is offset up from it by VPAD below. The stacking
+  // increment adds back 2*VPAD on top of VGAP so that VGAP still means
+  // exactly what it always has (one real grid unit of clearance between
+  // one block's rendered bottom edge and the next block's rendered top
+  // edge) — without the +2*VPAD here, each block's own top/bottom padding
+  // would eat directly into that clearance, shrinking it to 0.
+  for(const n of graph.nodes){ const r=rowOf[n.id]; rowH[r]=Math.max(rowH[r]||0, portRowsH(n)); }
+  // y must stay a GRID multiple at every step — it's what portPos()'s
+  // n.y+VPAD+HDR_()+i*ROW_() cancels VPAD back against, so ports land
+  // exactly on a grid dot. Starting at TOP_MARGIN+VPAD looked tempting
+  // (would've put the very first block's edge back at the old TOP_MARGIN)
+  // but permanently shifts every rowY off-grid by VPAD, breaking every
+  // port in the graph — caught by the off-grid-port regression check
+  // reporting 26 violations, not by inspection.
   const rowY={}; let y=TOP_MARGIN;
   const maxRow=Object.keys(rowH).reduce((m,r)=>Math.max(m,+r),-1);
-  for(let r=0;r<=maxRow;r++){ rowY[r]=y; y+=(rowH[r]||GRID)+VGAP; }
-  for(const n of graph.nodes) n.y=rowY[rowOf[n.id]];
+  for(let r=0;r<=maxRow;r++){ rowY[r]=y; y+=(rowH[r]||GRID)+VGAP+2*VPAD; }
+  for(const n of graph.nodes) n.y=rowY[rowOf[n.id]]-VPAD;
 }
 /* w.back is a structural fact, decided once when the wire is made (see
    connect() in editor.js) and stored — never re-derived from geometry here.
