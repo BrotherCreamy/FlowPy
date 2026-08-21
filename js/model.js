@@ -237,7 +237,13 @@ function textLineHeight(font){
 let _HDR=null, _ROW=null;
 const HD_VPAD=2, ROW_VPAD=1;   // deliberate design padding, in px — the only hand-picked numbers left, and they're spacing choices, not measurements pretending to be exact
 function computeHDR(){ return Math.ceil((textLineHeight(FONT_TITLE)+HD_VPAD*2)/GRID)*GRID; }
-function computeROW(){ return Math.ceil((Math.max(textLineHeight(FONT_LABEL),PORT_SIZE)+ROW_VPAD*2)/GRID)*GRID; }
+/* the row's real, un-ceiled content height — ROW_() below is this rounded
+   UP to a whole GRID unit (needed so consecutive ports land exactly GRID
+   apart), but blockH() below also needs the real, un-rounded value: it's
+   how tall a row's label actually needs to render, independent of how
+   much grid-alignment padding got rounded on top of that. */
+function natRow(){ return Math.max(textLineHeight(FONT_LABEL),PORT_SIZE)+ROW_VPAD*2; }
+function computeROW(){ return Math.ceil(natRow()/GRID)*GRID; }
 function HDR_(){ return _HDR===null ? (_HDR=computeHDR()) : _HDR; }
 function ROW_(){ return _ROW===null ? (_ROW=computeROW()) : _ROW; }
 /* called once fonts are confirmed loaded (see editor.js bootstrap) — the
@@ -298,24 +304,34 @@ function rowContentWidth(pt){
    two call sites can never drift apart the way the JS/CSS PORT_GAP
    constant once did (see the earlier bug note for that).
 
-   Deliberately NOT reduced by ROW_()/2 to account for a row's content
-   being centred on its own grid line rather than flush with its flow-top
-   (tried that, reverted): it makes h a HALF-grid value, and h must
-   be a whole GRID multiple or the block's bottom edge lands at a
-   DIFFERENT half-grid phase than its top (VPAD-offset) edge below — the
-   two are only guaranteed to match if adding h moves n.y by a whole
-   number of grid units. This is also why nodeSize()'s h ends up a full
-   GRID unit taller than the un-padded original for even the smallest
-   (single-row) block: 2*VPAD is exactly one GRID unit, and there is no
-   smaller whole-grid increment to round up to once any real, non-zero
-   padding is added. That's expected, not a bug — see the .node comment
-   in style.css for the full accounting of where every pixel goes. */
-function portRowsH(n){
+   Row i's grid line (portPos()'s i*ROW_() term) only needs its OWN row's
+   flow-box to reach ROW_() past the PREVIOUS row's grid line — never past
+   its own. Every row except the truly last one still needs a full ROW_()
+   flow contribution (ports must land exactly GRID apart), but the LAST
+   row is different: nothing comes after it, so its own flow-box only
+   needs to be as tall as its real, un-ceiled content requires — see
+   natRow() above — not a whole spare GRID unit. hasField blocks (CONST)
+   are the one exception: their single row also hosts an editable value
+   input (see editor.js), which needs the full ROW_() the way it always
+   has, not the tighter label/port sizing.
+
+   Rounding the whole natural sum up to one GRID unit in one step (same
+   as nodeSize()'s own width, and the very first sizing rule this file
+   ever established) is what keeps h a whole GRID multiple — required so
+   the block's bottom edge lands at the same half-grid phase VPAD put the
+   top edge at (adding any WHOLE GRID multiple to a half-grid value keeps
+   it half-grid, no matter which multiple). The rounding remainder IS the
+   visible bottom breathing room; no second, separately-reserved VPAD term
+   is needed the way an earlier version of this function used, which
+   forced every block a full extra GRID unit taller than necessary. */
+function blockH(n){
   const p=portsOf(n), rows=Math.max(p.ins.length,p.outs.length,1);
-  return HDR_()+rows*ROW_();
+  const trailing=hasField(n) ? ROW_() : Math.max(PORT_SIZE,natRow()/2);
+  const natural=VPAD+HDR_()+(rows-1)*ROW_()+trailing;
+  return Math.ceil(natural/GRID)*GRID;
 }
 function nodeSize(n){
-  const p=portsOf(n), rows=Math.max(p.ins.length,p.outs.length,1);
+  const p=portsOf(n);
   let w;
   if(n.w){ w=n.w; }
   else{
@@ -327,8 +343,31 @@ function nodeSize(n){
     w=Math.max(titleW,bodyW)+MEASURE_SLOP;
   }
   w=Math.ceil(w/GRID)*GRID;                          // width is a whole number of cells
-  let h=portRowsH(n)+2*VPAD;   // reference height + symmetric half-grid breathing room top and bottom
+  const h=blockH(n);
   return {w,h};
+}
+/* How far a row's LABEL (not its port — the port has to stay exactly on
+   the grid line, no negotiating that) can be nudged below the grid line
+   before it would force blockH() to round up to the next GRID tier.
+   Ports are small (PORT_SIZE) and barely straddle the header/body
+   boundary; labels are usually taller (natRow()) and visibly straddle it
+   more — centering both on the same point is what a screenshot flagged
+   as looking "squished against the title bar." There's a hard ceiling on
+   how far this can go: blockH()'s normal (non-hasField) trailing budget
+   is only Math.max(PORT_SIZE,natRow()/2), and the block is only as tall
+   as that rounds up to — pushing the label further than the ROOM THAT
+   ROUNDING HAPPENED TO LEAVE would overflow past the block's own bottom
+   edge. This computes exactly how much of that rounding slack is safely
+   spare (a small margin held back, same caution as MEASURE_SLOP above),
+   applied uniformly to every row via a single global constant — safe for
+   every row, not just the last one, since only the trailing edge after
+   the truly last row is ever this tight; every other row has a full
+   spare --row of clearance to the next one. */
+function labelShift(){
+  const trailing=Math.max(PORT_SIZE,natRow()/2);
+  const hRef=Math.ceil((VPAD+HDR_()+trailing)/GRID)*GRID;
+  const spaceBelow=hRef-VPAD-HDR_();
+  return Math.max(0, spaceBelow-natRow()/2-1);
 }
 /* hasField blocks (CONST) share their field with the port's own row
    (see editor.js's pfield positioning) rather than a dedicated row below
@@ -592,15 +631,11 @@ function layoutRows(graph){
 function layoutY(graph){
   const rowOf=layoutRows(graph);
   const rowH={};
-  // row stacking uses each node's port-bearing reference height (not the
-  // padded nodeSize().h) so rowY[r] is the grid-aligned line ports sit
-  // flush against — n.y is offset up from it by VPAD below. The stacking
-  // increment adds back 2*VPAD on top of VGAP so that VGAP still means
-  // exactly what it always has (one real grid unit of clearance between
-  // one block's rendered bottom edge and the next block's rendered top
-  // edge) — without the +2*VPAD here, each block's own top/bottom padding
-  // would eat directly into that clearance, shrinking it to 0.
-  for(const n of graph.nodes){ const r=rowOf[n.id]; rowH[r]=Math.max(rowH[r]||0, portRowsH(n)); }
+  // row stacking uses each node's REAL rendered height (blockH — already
+  // GRID-exact by construction, see its own comment) so a plain +VGAP
+  // increment is exactly one real grid unit of clearance between one
+  // block's rendered bottom edge and the next block's rendered top edge.
+  for(const n of graph.nodes){ const r=rowOf[n.id]; rowH[r]=Math.max(rowH[r]||0, blockH(n)); }
   // y must stay a GRID multiple at every step — it's what portPos()'s
   // n.y+VPAD+HDR_()+i*ROW_() cancels VPAD back against, so ports land
   // exactly on a grid dot. Starting at TOP_MARGIN+VPAD looked tempting
@@ -610,7 +645,7 @@ function layoutY(graph){
   // reporting 26 violations, not by inspection.
   const rowY={}; let y=TOP_MARGIN;
   const maxRow=Object.keys(rowH).reduce((m,r)=>Math.max(m,+r),-1);
-  for(let r=0;r<=maxRow;r++){ rowY[r]=y; y+=(rowH[r]||GRID)+VGAP+2*VPAD; }
+  for(let r=0;r<=maxRow;r++){ rowY[r]=y; y+=(rowH[r]||GRID)+VGAP; }
   for(const n of graph.nodes) n.y=rowY[rowOf[n.id]]-VPAD;
 }
 /* w.back is a structural fact, decided once when the wire is made (see

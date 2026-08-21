@@ -24,7 +24,7 @@
      model.js HDR_()/ROW_()) — kept live by editor.js so every block in the
      DOM shares the exact same values the model used to compute port
      positions. 20px here is just the pre-JS fallback for the first paint. */
-  --hdr:20px; --row:20px; --vpad:10px;
+  --hdr:20px; --row:20px; --vpad:10px; --portsize:8px; --portgap:8px;
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
@@ -186,35 +186,32 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
 #crumb,#hint,.tabs .tab,#ghost .node{border-radius:0}
 
 /* ======= blocks: borderless — medium/dark-grey body, dark-grey title bar, no box outline ======= */
-/* padding-top:var(--vpad) is the only thing that makes the block's own
-   rendered box start half a grid unit off the port grid (model.js's
-   VPAD/portPos/layoutY — the box's total height already has a matching
-   extra VPAD baked in at the bottom by nodeSize(), which shows up as
-   trailing space after .hd+.body's own natural (unchanged) content height
-   — border-box means padding-top eats into content height rather than
-   growing the box, so this alone reproduces both edges without needing a
-   second bottom-side rule).
+/* padding-top:var(--vpad) is what makes the block's own rendered box
+   start half a grid unit off the port grid (model.js's VPAD/portPos/
+   layoutY — the box's total height already has a matching amount baked
+   in at the bottom by nodeSize(), via rounding up to the next whole GRID
+   unit — see blockH() in model.js for the full accounting of where every
+   pixel of that goes).
 
-   Full accounting of a block's height, smallest case (one port row, no
-   label longer than the port): VPAD (10, deliberate top padding) + HDR_
-   (20, header) + ROW_ (20, one port row's reserved slot — has to be a
-   full GRID unit so consecutive ports land exactly GRID apart, even
-   though the port itself is only 8px) + VPAD (10, deliberate bottom
-   padding) = 60px, 3 grid units. Nothing in that is unaccounted: the
-   50px before rounding (VPAD+HDR_+ROW_-ish minus the ~9px a port/label
-   actually uses of its own row) can't render as a 2.5-grid block, because
-   a block's bottom edge only lands at the SAME half-grid phase as VPAD
-   put the top edge at if the whole block height is a WHOLE number of
-   grid units — the smallest whole-grid height at or above the real need
-   is a full grid unit more than the un-padded original (40->60), not a
-   fraction more, since there's no such thing as a half-grid-multiple
-   block height. That's why a one-row block like BLINK looks like it has
-   a large gap below its single port: a full extra grid unit is genuinely
-   the least this design can add once ANY visible padding is requested,
-   and for a block with only one row of real content that extra unit is
-   50% of the total, not a small fraction the way it would be on a
-   four-row block. */
-.node{background:var(--nbody);color:var(--ntxt);border:none;border-radius:0;box-shadow:none;cursor:move;font-weight:300;padding-top:var(--vpad,10px)}
+   .node's own background is a hard-stop gradient (same trick as the
+   header's own .hd-bar painted region below), not a flat fill: it only
+   starts painting at "100% height minus VPAD minus HDR_", bottom-
+   anchored, so the grey body colour covers everything from the header's
+   bottom edge down to the block's own bottom edge — INCLUDING the tight
+   space blockH()/the .prow rules below leave after the last row, which
+   isn't part of any element's own flow box — while leaving the VPAD
+   padding gap at the top fully unpainted (canvas shows straight through).
+   This is deliberate, not an oversight: .node's box has to span the full
+   padded height (VPAD included) for obstacle/hit-testing/drag purposes,
+   but painting that whole span with a flat grey fill made the body
+   colour appear ABOVE the title bar — backwards from the block's actual
+   structure (title, then body) — a real, confusing strip of "body"
+   colour rendering before the header even started. .hd paints its own
+   background over the region right below that (unaffected by any of
+   this — see its own rule below). */
+.node{color:var(--ntxt);border:none;border-radius:0;box-shadow:none;cursor:move;font-weight:300;padding-top:var(--vpad,10px);
+  background:linear-gradient(var(--nbody),var(--nbody));background-repeat:no-repeat;background-position:bottom;
+  background-size:100% calc(100% - var(--vpad,10px) - var(--hdr,20px))}
 /* selection/drag/error states are hairline outlines (calc(px * --iz)) — the
    box itself stays borderless, these only ever appear as transient feedback.
    Resolves to an exact constant 1 device px at any zoom because #nodes is
@@ -244,7 +241,7 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
    that, verified by measuring the real rendered box, not by assuming. */
 .node .hd,
 .node.k-FB .hd,.node.k-F .hd,.node.k-io .hd,.node.k-var .hd,.node.k-const .hd{
-  height:var(--hdr,20px);position:relative;background:none;border:none;padding:0;overflow:visible}
+  height:var(--hdr,20px);position:relative;background:var(--ntitle);border:none;padding:0;overflow:visible}
 .node .hd-bar{
   position:absolute;left:0;top:0;width:100%;box-sizing:border-box;
   display:flex;align-items:center;gap:5px;padding:1px 6px;
@@ -266,26 +263,46 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
    an exact grid dot, and centering naturally within a row would land them
    half a row off that.
 
-   Tried switching this to align-items:flex-start + a small fixed shift
-   (half the PORT's own size, not half the row's) on the theory that
-   centering wastes a real, unreserved half-row after the last row that
-   nothing else covers. Measured it directly and that theory doesn't
-   survive contact: .prow's own FLOW height is ROW_() either way (needed
-   so consecutive rows land exactly ROW_() apart) — alignment mode only
-   moves where content PAINTS within that already-reserved box, and
-   flex-start actually paints the (taller) label slightly LOWER, not
-   higher, than centering does. See model.js's portRowsH() and the
-   VPAD-block comment on .node above for where the real explanation
-   lives: a block's total height must be a whole GRID multiple for its
-   top and bottom edges to land at the same half-grid phase, and any
-   non-zero VPAD forces that whole-multiple up by a full GRID unit over
-   the un-padded original — there's no smaller increment available. */
+   .prow's own flow height is --portsize (the PORT's own size, 8px), not
+   the full --row (20px) a row needs for SPACING to the next one — those
+   are different requirements. A row still has to be exactly --row past
+   the PREVIOUS row's grid line (ports must land exactly GRID apart, no
+   negotiating that), which margin-top on every row but the first
+   supplies directly; but nothing needs a full spare grid unit reserved
+   AFTER the truly last row, and reserving one anyway (an earlier version
+   of this rule did, using --row for every row uniformly) is exactly what
+   produced a real, screenshot-visible bug: a large, unaccounted gap below
+   a block's last port, worst on a one-row block where that spare unit is
+   the majority of the block's total height. The PORT stays a normal flex
+   child (align-items:center is a no-op once the row's own box is exactly
+   the port's own size, but harmless to leave). The LABEL is pulled out of
+   flow entirely (position:absolute below) so ITS height — usually taller
+   than the port — never forces the row's flow box to grow back to
+   something --portsize can't hold; .prow's own translateY(-50%) still
+   applies to the label the same as the port, since transform affects an
+   element's whole subtree, so both end up correctly centred on the same
+   grid line regardless of the row's own tiny box height.
+
+   CONST (the one hasField block) is the one exception, overridden below:
+   its single row also hosts an editable value input, which needs the
+   full --row it's always had, not the tight label/port sizing. */
 .node .body{position:relative;display:flex;flex-direction:row}
 .node .ins-col,.node .outs-col{display:flex;flex-direction:column;flex:0 0 auto}
 .node .body-spacer{flex:1 1 auto}
-.node .prow{height:var(--row,20px);display:flex;align-items:center;gap:8px;transform:translateY(-50%);overflow:visible}
+.node .prow{height:var(--portsize,8px);position:relative;display:flex;align-items:center;transform:translateY(-50%);overflow:visible}
+.node .prow:not(:first-child){margin-top:calc(var(--row,20px) - var(--portsize,8px))}
+.node.k-const .prow{height:var(--row,20px)}
 .node .outs-col .prow{justify-content:flex-end}
-.node .plabel{position:static;color:var(--ntxt);opacity:.7;font-size:11px;white-space:nowrap;pointer-events:none}
+/* nudged down from the true grid line by --labelshift (model.js's
+   labelShift()) — the PORT stays exactly on the line (has to, for wire
+   routing), but the label is purely cosmetic and doesn't, so it's pulled
+   down as far as the block's own rounding slack safely allows without
+   overflowing past the bottom edge — reduces, doesn't eliminate, how much
+   it visually straddles the header/body boundary; see labelShift()'s own
+   comment for why it can't be pulled down further than this. */
+.node .plabel{position:absolute;top:calc(50% + var(--labelshift,0px));transform:translateY(-50%);color:var(--ntxt);opacity:.7;font-size:11px;white-space:nowrap;pointer-events:none}
+.node .ins-col .plabel{left:calc(var(--portsize,8px) + var(--portgap,8px))}
+.node .outs-col .plabel{right:calc(var(--portsize,8px) + var(--portgap,8px))}
 /* CONST is the only hasField block and always has exactly one port/row, so
    top:1px + bottom:1px (auto-filling whatever --row actually measures to,
    not a hardcoded height that could drift out of sync with it) lands the
