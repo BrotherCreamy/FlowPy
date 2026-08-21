@@ -193,7 +193,27 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
    trailing space after .hd+.body's own natural (unchanged) content height
    — border-box means padding-top eats into content height rather than
    growing the box, so this alone reproduces both edges without needing a
-   second bottom-side rule). */
+   second bottom-side rule).
+
+   Full accounting of a block's height, smallest case (one port row, no
+   label longer than the port): VPAD (10, deliberate top padding) + HDR_
+   (20, header) + ROW_ (20, one port row's reserved slot — has to be a
+   full GRID unit so consecutive ports land exactly GRID apart, even
+   though the port itself is only 8px) + VPAD (10, deliberate bottom
+   padding) = 60px, 3 grid units. Nothing in that is unaccounted: the
+   50px before rounding (VPAD+HDR_+ROW_-ish minus the ~9px a port/label
+   actually uses of its own row) can't render as a 2.5-grid block, because
+   a block's bottom edge only lands at the SAME half-grid phase as VPAD
+   put the top edge at if the whole block height is a WHOLE number of
+   grid units — the smallest whole-grid height at or above the real need
+   is a full grid unit more than the un-padded original (40->60), not a
+   fraction more, since there's no such thing as a half-grid-multiple
+   block height. That's why a one-row block like BLINK looks like it has
+   a large gap below its single port: a full extra grid unit is genuinely
+   the least this design can add once ANY visible padding is requested,
+   and for a block with only one row of real content that extra unit is
+   50% of the total, not a small fraction the way it would be on a
+   four-row block. */
 .node{background:var(--nbody);color:var(--ntxt);border:none;border-radius:0;box-shadow:none;cursor:move;font-weight:300;padding-top:var(--vpad,10px)}
 /* selection/drag/error states are hairline outlines (calc(px * --iz)) — the
    box itself stays borderless, these only ever appear as transient feedback.
@@ -244,7 +264,22 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
    height, landing its content's centre exactly on the row's own top
    edge — the grid line — instead of the row's middle; ports must sit on
    an exact grid dot, and centering naturally within a row would land them
-   half a row off that. */
+   half a row off that.
+
+   Tried switching this to align-items:flex-start + a small fixed shift
+   (half the PORT's own size, not half the row's) on the theory that
+   centering wastes a real, unreserved half-row after the last row that
+   nothing else covers. Measured it directly and that theory doesn't
+   survive contact: .prow's own FLOW height is ROW_() either way (needed
+   so consecutive rows land exactly ROW_() apart) — alignment mode only
+   moves where content PAINTS within that already-reserved box, and
+   flex-start actually paints the (taller) label slightly LOWER, not
+   higher, than centering does. See model.js's portRowsH() and the
+   VPAD-block comment on .node above for where the real explanation
+   lives: a block's total height must be a whole GRID multiple for its
+   top and bottom edges to land at the same half-grid phase, and any
+   non-zero VPAD forces that whole-multiple up by a full GRID unit over
+   the un-padded original — there's no smaller increment available. */
 .node .body{position:relative;display:flex;flex-direction:row}
 .node .ins-col,.node .outs-col{display:flex;flex-direction:column;flex:0 0 auto}
 .node .body-spacer{flex:1 1 auto}

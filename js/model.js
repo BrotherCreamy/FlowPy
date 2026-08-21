@@ -292,14 +292,27 @@ function rowContentWidth(pt){
   if(!pt||!pt.name) return PORT_SIZE;
   return PORT_SIZE+PORT_GAP+textWidth(pt.name,FONT_LABEL);
 }
-/* HDR_()+rows*ROW_() is the block's port-bearing "reference" height: the
-   span row-to-row stacking (layoutY) and port y-coordinates (portPos) are
-   both anchored to, unaffected by VPAD below. Centralized here so the two
-   call sites can never drift apart the way the JS/CSS PORT_GAP constant
-   once did (see the earlier bug note for that). */
+/* The block's port-bearing "reference" height — row-to-row stacking
+   (layoutY) and the block's own rendered height (nodeSize, below VPAD)
+   are both anchored to this, unaffected by VPAD. Centralized here so the
+   two call sites can never drift apart the way the JS/CSS PORT_GAP
+   constant once did (see the earlier bug note for that).
+
+   Deliberately NOT reduced by ROW_()/2 to account for a row's content
+   being centred on its own grid line rather than flush with its flow-top
+   (tried that, reverted): it makes h a HALF-grid value, and h must
+   be a whole GRID multiple or the block's bottom edge lands at a
+   DIFFERENT half-grid phase than its top (VPAD-offset) edge below — the
+   two are only guaranteed to match if adding h moves n.y by a whole
+   number of grid units. This is also why nodeSize()'s h ends up a full
+   GRID unit taller than the un-padded original for even the smallest
+   (single-row) block: 2*VPAD is exactly one GRID unit, and there is no
+   smaller whole-grid increment to round up to once any real, non-zero
+   padding is added. That's expected, not a bug — see the .node comment
+   in style.css for the full accounting of where every pixel goes. */
 function portRowsH(n){
-  const p=portsOf(n);
-  return HDR_()+Math.max(p.ins.length,p.outs.length,1)*ROW_();
+  const p=portsOf(n), rows=Math.max(p.ins.length,p.outs.length,1);
+  return HDR_()+rows*ROW_();
 }
 function nodeSize(n){
   const p=portsOf(n), rows=Math.max(p.ins.length,p.outs.length,1);
