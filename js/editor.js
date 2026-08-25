@@ -607,13 +607,18 @@ cwrap.addEventListener('mousedown',e=>{
   const nd=e.target.closest('.node');
   if(nd){ const n=nodeById(nd.dataset.id);
     const g0=G();
-    /* a root (nothing forward-feeds it) is the one kind of block that
-       drags its WHOLE tree freely around the canvas — every other block
-       still does the row-reorder-within-tree drag below. alt keeps its
-       existing meaning (single-node reorder, ignoring tree) even on a
-       root, since that's a different, more surgical operation from
-       moving the tree itself. */
-    if(isRoot(g0,n.id) && !e.altKey){ startFreeDrag(g0,n,e); e.preventDefault(); return; }
+    /* a block drags its WHOLE tree freely around the canvas when there's
+       no reordering it could do anyway — a root always qualifies
+       (nothing forward-feeds it), but so does any other block whose
+       branch-level reorder would have nothing to swap with (see
+       hasReorderTarget, model.js): a straight, unbranched chain has zero
+       positional permutations available for ANY block in it, not just
+       its own root. A block that DOES have something to swap with still
+       does the row-reorder-within-tree drag below. alt keeps its
+       existing meaning (single-node reorder, ignoring tree) even when
+       free-drag would otherwise apply, since that's a different, more
+       surgical operation from moving the tree itself. */
+    if((isRoot(g0,n.id)||!hasReorderTarget(g0,n.id)) && !e.altKey){ startFreeDrag(g0,n,e); e.preventDefault(); return; }
     if(!sel.nodes.has(n.id)) selectOnly(n.id);
     const g=G();
     const seeds=[...sel.nodes];

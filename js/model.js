@@ -469,6 +469,28 @@ function treeOf(graph, seeds){
     } }
   return set;
 }
+/* whether grabbing this block and reordering it (the branch-level case
+   dragPreview's own comment describes — not a whole-tree swap, which no
+   longer visibly moves anything under free tree positioning) has ANY
+   valid target to swap with at all. Mirrors dragPreview's own non-alt,
+   in-band scoping exactly: everything this block forward-feeds is what
+   would move together (movers); the rest of its tree, minus movers' own
+   ancestors (a producer can never be reordered before its own consumer —
+   see dragPreview's fuller comment), is the pool of legal swap targets.
+   Empty pool means reordering this block can only ever hold at the
+   original order — a straight, unbranched chain with nothing else
+   sharing its tree is the common case, but any block whose whole tree IS
+   its own forward closure qualifies, not just literal roots. */
+function hasReorderTarget(graph,id){
+  const movers=forwardClosure(graph,[id]);
+  const myTree=treeOf(graph,[id]);
+  const scope=[...myTree].filter(x=>!movers.has(x)).filter(x=>{
+    const reach=forwardClosure(graph,[x]);
+    for(const m of movers) if(reach.has(m)) return false;
+    return true;
+  });
+  return scope.length>0;
+}
 /* a block with nothing forward-feeding it — the one kind of block that can
    be dragged to move its whole tree freely (see startFreeDrag in
    editor.js) rather than reordering branches within it. Same notion of
