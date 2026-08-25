@@ -53,7 +53,18 @@ const zAttr= (nid,i)=> '_z'+pid(nid)+'_'+i;
 function inExpr(graph,n,i){
   const w=graph.wires.find(w=>w.t[0]===n.id&&w.t[1]===i);
   if(w){ const s=graph.nodes.find(x=>x.id===w.f[0]);
-    if(s) return BACKW.has(w.id)? zVar(s.id,w.f[1]) : outVar(s,w.f[1]); }
+    if(s){
+      if(BACKW.has(w.id)) return zVar(s.id,w.f[1]);
+      /* a fan-out node (model.js — see portsOf's comment) is purely a
+         layout device, invisible to the generated program: it has no
+         variable of its own (see emitGraph's own note), so reading
+         "through" it here — recursing to whatever actually feeds IT —
+         is what makes every branch resolve to the exact same expression
+         a direct wire from the real source would have. */
+      if(s.k==='fanout') return inExpr(graph,s,0);
+      return outVar(s,w.f[1]);
+    }
+  }
   const p=portsOf(n).ins[i];
   return (p&&p.type==='bool')?'False':'0';
 }
@@ -127,7 +138,7 @@ function emitGraph(graph,block,ctx){
       if(graph.wires.some(w=>w.f[0]===n.id&&w.f[1]===0)){ L.push(`${outVar(n,0)} = V.${pid(n.varName)}`); const s=wr(n,0,outVar(n,0)); if(s)L.push(s); }
       continue;
     }
-    if(n.k!=='blk') continue;
+    if(n.k!=='blk') continue;   // a fan-out node (n.k==='fanout') falls out here too — inExpr reads straight through it, so it never needs a line of its own
     const t=typeOf(n.type); if(!t) throw new Error('node '+n.id+' has unknown type');
     const ins=(t.ins||[]).map((p,i)=>inExpr(graph,n,i));
     const outs=t.outs||[];

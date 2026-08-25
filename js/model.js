@@ -307,6 +307,15 @@ function portsOf(n){
   if(n.k==='var'){ const v=P_.vars.find(v=>v.name===n.varName); const ty=v?v.type:'any'; return {ins:[IO('',ty)], outs:[IO('',ty)]}; }
   if(n.k==='gin'){ const t=typeOf(n.owner); return {ins:[],outs:[IO(t&&t.ins[n.pi]?t.ins[n.pi].name:'?', t&&t.ins[n.pi]?t.ins[n.pi].type:'any')]}; }
   if(n.k==='gout'){ const t=typeOf(n.owner); return {ins:[IO(t&&t.outs[n.pi]?t.outs[n.pi].name:'?', t&&t.outs[n.pi]?t.outs[n.pi].type:'any')],outs:[]}; }
+  /* a fan-out point: one wire in, and every branch reads the same output
+     slot (index 0) \u2014 same as any block's output already supports more
+     than one consumer, see codegen's outVar(). Never rendered (see
+     buildNode/renderGraph, editor.js) and never emitted (codegen's
+     inExpr sees straight through it) \u2014 it exists purely so the SAME
+     block position it's a fan-out for gets a real, positioned node the
+     rest of layoutX/layoutRows can reason about, the way every other
+     forward wire already does. */
+  if(n.k==='fanout') return {ins:[IO('','any')], outs:[IO('','any')]};
   return {ins:[],outs:[]};
 }
 function nodeTitle(n){
@@ -317,11 +326,13 @@ function nodeTitle(n){
   if(n.k==='var') return n.varName;
   if(n.k==='gin') return 'IN';
   if(n.k==='gout') return 'OUT';
+  if(n.k==='fanout') return '';
 }
 function nodeKindClass(n){
   if(n.k==='blk'){ const t=typeOf(n.type); return 'k-'+(t?t.kind:'F'); }
   if(n.k==='const') return 'k-const';
   if(n.k==='gin'||n.k==='gout') return 'k-io';
+  if(n.k==='fanout') return 'k-fanout';
   return 'k-var';
 }
 function hasField(n){ return n.k==='const'; }
@@ -383,12 +394,14 @@ function rowContentWidth(pt){
    version of this function used, which forced every block a full extra
    LANE taller than necessary. */
 function blockH(n){
+  if(n.k==='fanout') return GRID;   // never rendered — a titled/ported block's real content height is meaningless here
   const p=portsOf(n), rows=Math.max(p.ins.length,p.outs.length,1);
   const trailing=hasField(n) ? ROW_() : Math.max(PORT_SIZE,natRow()/2);
   const natural=VPAD+HDR_()+(rows-1)*ROW_()+trailing;
   return Math.ceil(natural/GRID)*GRID;
 }
 function nodeSize(n){
+  if(n.k==='fanout') return {w:GRID,h:GRID};   // smallest possible footprint — see portsOf's comment
   const p=portsOf(n);
   let w;
   if(n.w){ w=n.w; }
@@ -435,6 +448,7 @@ function nodeSize(n){
    the ports inside them do. */
 function portPos(n, side, i){
   const s=nodeSize(n);
+  if(n.k==='fanout') return { x: n.x + (side==='in'?0:s.w), y: n.y + s.h/2 };   // centered in its own tiny box — the VPAD/HDR_ header offset every other kind uses doesn't apply to something with no header
   return { x: n.x + (side==='in'?0:s.w), y: n.y + VPAD + HDR_() + i*ROW_() };
 }
 /* a wire that does not travel strictly left-to-right is a feedback wire:

@@ -243,7 +243,7 @@ function renderGraph(){
   computeLayout(G());
   nodesL.innerHTML=''; wireg.innerHTML='';
   const g=G();
-  for(const n of g.nodes) nodesL.append(buildNode(n));
+  for(const n of g.nodes){ if(n.k!=='fanout') nodesL.append(buildNode(n)); }
   for(const w of g.wires) wireg.append(buildWire(w));
   rerouteAll(); renderCrumb(); renderInspector();
 }
@@ -271,6 +271,7 @@ function retypeBlock(n,newName){
     return true;
   });
   g.nodes.filter(x=>x.auto).forEach(x=>collapseAutoNode(g,x.id));
+  g.nodes.filter(x=>x.k==='fanout').forEach(x=>collapseFanoutNode(g,x.id));
   renderPalette(); renderGraph(); markDirty();
 }
 function titleEl(n){
@@ -423,7 +424,12 @@ function updateWires(fast){
       path.style.filter=c.glow?'drop-shadow(0 0 4px '+c.stroke+')':''; }
     else { path.style.stroke=''; path.style.strokeWidth=''; path.style.filter=''; }
     const tx=grp.querySelector('text');
-    const label = has&&showVals?fmt(v):'';
+    /* a wire INTO a fan-out node (b.k==='fanout') is the trunk — its own
+       branches (fanout -> each real consumer) already show this exact
+       same value, so labeling the trunk too would just be a second,
+       redundantly-placed copy right next to the source; the user should
+       never see this node existing at all (see portsOf's comment). */
+    const label = has&&showVals&&b.k!=='fanout'?fmt(v):'';
     if(label){ tx.textContent=label;
       let mid={x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2};
       try{ const L=hit.getTotalLength(); if(L>0) mid=hit.getPointAtLength(L*0.5); }catch(e){}
@@ -459,7 +465,7 @@ function delWire(id){
   const g=G();
   const w=g.wires.find(x=>x.id===id);
   g.wires=g.wires.filter(w=>w.id!==id);
-  if(w){ collapseAutoNode(g,w.t[0]); collapseAutoNode(g,w.f[0]); }
+  if(w){ collapseAutoNode(g,w.t[0]); collapseAutoNode(g,w.f[0]); collapseFanoutNode(g,w.f[0]); }
   /* may just have split one tree into two — no special handling needed:
      computeLayout (model.js) finds two connected components next render,
      and any piece that doesn't already own a graph.treePos entry gets a
@@ -472,6 +478,7 @@ function delSelection(){
   g.nodes=g.nodes.filter(n=>!ids.includes(n.id));
   g.wires=g.wires.filter(w=>!ids.includes(w.f[0])&&!ids.includes(w.t[0])&&!sel.wires.has(w.id));
   g.nodes.filter(n=>n.auto).forEach(n=>collapseAutoNode(g,n.id));
+  g.nodes.filter(n=>n.k==='fanout').forEach(n=>collapseFanoutNode(g,n.id));
   selectOnly(null); renderGraph(); markDirty();
 }
 /* A wire's direction is never a choice the user makes — it's derived from the
@@ -535,14 +542,37 @@ function connect(fn,fi,tn,ti){
     g.wires=g.wires.filter(w=>w!==existing);
     const afterSrc=g.nodes.findIndex(n=>n.id===exFn);
     g.nodes.splice(afterSrc+1,0,m);
-    _wireUp(g,exFn,exFi,m.id,0);
-    _wireUp(g,fn,fi,m.id,1);
-    _wireUp(g,m.id,0,tn,ti);
+    wireForward(g,exFn,exFi,m.id,0);
+    wireForward(g,fn,fi,m.id,1);
+    _wireUp(g,m.id,0,tn,ti);   // m is brand new — it can't already have an output to fan out from
     renderGraph(); markDirty();
     return;
   }
-  _wireUp(g,fn,fi,tn,ti);
+  wireForward(g,fn,fi,tn,ti);
   renderGraph(); markDirty();
+}
+/* wires fn.fi -> tn.ti, same as _wireUp, but transparently routes through
+   a shared fan-out node (model.js — see portsOf's comment there for what
+   it is and why) if fn.fi already forward-feeds something else: creates
+   one if this is the second consumer, or just adds another branch off
+   the one that's already there. Every "real, user-facing" connection
+   should go through this instead of _wireUp directly — _wireUp itself is
+   still exactly right for wiring the fan-out node's OWN internal legs,
+   which by construction can never themselves need to fan out again from
+   a fresh call. */
+function wireForward(g,fn,fi,tn,ti){
+  const existingOuts=g.wires.filter(w=>w.f[0]===fn&&w.f[1]===fi&&!isBack(g,w));
+  if(!existingOuts.length){ _wireUp(g,fn,fi,tn,ti); return; }
+  const already=existingOuts.find(w=>{ const t=nodeById(w.t[0]); return t&&t.k==='fanout'; });
+  if(already){ _wireUp(g,already.t[0],0,tn,ti); return; }
+  const oldWire=existingOuts[0], oldTarget=oldWire.t[0], oldTi=oldWire.t[1];
+  const f={id:uid('n'),k:'fanout'};
+  const afterSrc=g.nodes.findIndex(n=>n.id===fn);
+  g.nodes.splice(afterSrc+1,0,f);
+  g.wires=g.wires.filter(w=>w!==oldWire);
+  _wireUp(g,fn,fi,f.id,0);
+  _wireUp(g,f.id,0,oldTarget,oldTi);
+  _wireUp(g,f.id,0,tn,ti);
 }
 function _wireUp(g,fn,fi,tn,ti){
   _wireUpRaw(g,fn,fi,tn,ti);
@@ -567,9 +597,7 @@ function _wireUpRaw(g,fn,fi,tn,ti){
    have one) left with one or zero remaining inputs is pointless —
    collapses back to a plain direct wire (or vanishes entirely if
    there's nothing left to connect) rather than leaving a stray auto
-   block with a dangling port. Fan-out has no node to collapse: removing a
-   consumer is just removing its wire, and the branch it drew simply stops
-   existing on the next reroute. */
+   block with a dangling port. */
 function collapseAutoNode(g,nodeId){
   const n=g.nodes.find(x=>x.id===nodeId);
   if(!n||!n.auto) return;
@@ -581,6 +609,24 @@ function collapseAutoNode(g,nodeId){
   if(inWires.length===1){
     const src=inWires[0];
     for(const ow of outWires) _wireUp(g,src.f[0],src.f[1],ow.t[0],ow.t[1]);
+  }
+}
+/* the fan-out mirror of collapseAutoNode above: a fan-out node (see
+   wireForward/portsOf) left with one or zero remaining branches is
+   pointless — collapses back to a plain direct wire from its original
+   source (or vanishes entirely if nothing's left to connect), the same
+   way it would have looked if it had never needed to exist. */
+function collapseFanoutNode(g,nodeId){
+  const n=g.nodes.find(x=>x.id===nodeId);
+  if(!n||n.k!=='fanout') return;
+  const outWires=g.wires.filter(w=>w.f[0]===nodeId);
+  if(outWires.length>1) return;
+  const inWire=g.wires.find(w=>w.t[0]===nodeId);
+  g.nodes=g.nodes.filter(x=>x.id!==nodeId);
+  g.wires=g.wires.filter(w=>w.t[0]!==nodeId&&w.f[0]!==nodeId);
+  if(inWire&&outWires.length===1){
+    const ow=outWires[0];
+    _wireUp(g,inWire.f[0],inWire.f[1],ow.t[0],ow.t[1]);
   }
 }
 
