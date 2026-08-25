@@ -276,10 +276,26 @@ $('#modal').onclick=e=>{ if(e.target.id==='modal') $('#modal').classList.remove(
    plain download/upload each time, same shape the old .json flow always
    had, just this format instead. */
 let fileHandle=null;
-async function writeToHandle(){
+/* every write chains onto the previous one rather than firing
+   independently: writeToHandle runs on every single edit (markDirty is
+   the one choke point after every mutation, editor.js), so two edits
+   close together — two blurred fields, an undo right after a change —
+   would otherwise start a SECOND createWritable() before the first one's
+   own write+close finished. FileSystemWritableFileStream isn't safe
+   against that (each createWritable() call truncates the file fresh),
+   so overlapping writes could genuinely corrupt or truncate the synced
+   file rather than just racing harmlessly. Chaining onto writeChain
+   guarantees each write's own createWritable→write→close fully
+   completes before the next one starts, in order, no matter how close
+   together the edits that triggered them were. */
+let writeChain=Promise.resolve();
+function writeToHandle(){
   if(!fileHandle) return;
-  try{ const w=await fileHandle.createWritable(); await w.write(fileContent()); await w.close(); }
-  catch(e){ log('· lost the synced file, pick it again with Save: '+e.message,'e'); fileHandle=null; }
+  writeChain=writeChain.then(async()=>{
+    if(!fileHandle) return;
+    try{ const w=await fileHandle.createWritable(); await w.write(fileContent()); await w.close(); }
+    catch(e){ log('· lost the synced file, pick it again with Save: '+e.message,'e'); fileHandle=null; }
+  });
 }
 function saveProject(){
   if('showSaveFilePicker' in window){

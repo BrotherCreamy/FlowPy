@@ -1050,9 +1050,16 @@ function renderCode(){
   const b=$('#tb-code'); if(TAB!=='code') return; b.innerHTML='';
   let src='';
   try{ src=generate().full; }catch(e){ src='# codegen error:\n# '+e.message; }
+  /* the PREVIEW below stays just the runnable program — the embedded
+     project data (fileContent(), same as Save writes) is often far
+     longer than the code itself, and would bury what someone's actually
+     here to read. copy/download still hand out fileContent() though, not
+     src, for exactly the reason Save does: a .py without it looks
+     identical but silently can't be opened back into a project — see
+     parseManifest's own error for what that looks like when it happens. */
   b.append(el('div',{cls:'row'},
-    el('button',{onclick:()=>{navigator.clipboard.writeText(src);toast('copied');}},'copy'),
-    el('button',{onclick:()=>dl(P_.name+'.py',src)},'download .py'),
+    el('button',{onclick:()=>{navigator.clipboard.writeText(fileContent());toast('copied (includes the project data — see Save)');}},'copy'),
+    el('button',{title:'includes the embedded project data, same as Save — this file can be Opened back',onclick:()=>dl(P_.name+'.py',fileContent())},'download .py'),
     el('span',{cls:'chip'},src.split('\n').length+' lines')));
   b.append(el('pre',{cls:'code'},src));
 }
