@@ -113,19 +113,6 @@ function startPaletteDrag(e,kind,t){
     ghostDrag=null; };
   mv(e); document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
 }
-/* where in graph.nodes' order a row at cursorY belongs: before the first
-   node whose own span the cursor has reached at all — touching any part of
-   it, top edge included, means "swap with this one"; it doesn't have to be
-   dragged past that node's midpoint. graph.nodes' order is the only place
-   sequence is recorded, so this is the one place that translates a screen
-   position into an edit to that order. */
-function rowInsertIndex(nodes,cursorY){
-  for(let i=0;i<nodes.length;i++){
-    const bottom=nodes[i].y+nodeSize(nodes[i]).h;
-    if(cursorY<bottom) return i;
-  }
-  return nodes.length;
-}
 /* comparison units for the touch test below: each scope node on its own
    (used for reordering branches within one tree — siblings are individual
    nodes), or every scope node grouped by whichever tree it belongs to (used
@@ -238,8 +225,12 @@ function addNode(kind,t,x,y){
   if(kind==='blk'){ n.type=t.id; n.params={}; (t.params||[]).forEach(p=>n.params[p.name]=p.def); }
   if(kind==='const'){ n.value=1; n.vtype='num'; }
   if(kind==='vget'||kind==='vset'||kind==='var'){ if(!P_.vars.length){ toast('Create a variable first (Vars tab)'); return; } n.varName=P_.vars[0].name; }
-  computeLayout(g);
-  g.nodes.splice(rowInsertIndex(g.nodes,y),0,n);
+  /* a brand-new node is its own single-node tree, with nothing yet
+     forward-feeding it, so its LOCAL layout always resolves to exactly
+     (LEFT_MARGIN,TOP_MARGIN) — the drop point becomes its free-floating
+     offset instead, same mechanism a drag uses to move a tree. */
+  n.ox=snap(x-LEFT_MARGIN); n.oy=snap(y-TOP_MARGIN);
+  g.nodes.push(n);
   selectOnly(n.id); renderGraph(); markDirty(); return n;
 }
 
@@ -278,6 +269,7 @@ function retypeBlock(n,newName){
     return true;
   });
   g.nodes.filter(x=>x.auto).forEach(x=>collapseAutoNode(g,x.id));
+  resetTreeOffsets(g);   // retyping can drop wires (fewer ports) and split a tree — see delWire's comment
   renderPalette(); renderGraph(); markDirty();
 }
 function titleEl(n){
@@ -467,6 +459,12 @@ function delWire(id){
   const w=g.wires.find(x=>x.id===id);
   g.wires=g.wires.filter(w=>w.id!==id);
   if(w){ collapseAutoNode(g,w.t[0]); collapseAutoNode(g,w.f[0]); }
+  /* this may just have split one tree into two — clear every tree's stored
+     offset so each resulting piece re-anchors around wherever it's
+     currently, visibly sitting (see resetTreeOffsets/computeLayout in
+     model.js) instead of both halves trying to resume the one offset that
+     assumed they were still a single tree. */
+  resetTreeOffsets(g);
   renderGraph(); markDirty();
 }
 function delSelection(){
@@ -475,6 +473,7 @@ function delSelection(){
   g.nodes=g.nodes.filter(n=>!ids.includes(n.id));
   g.wires=g.wires.filter(w=>!ids.includes(w.f[0])&&!ids.includes(w.t[0])&&!sel.wires.has(w.id));
   g.nodes.filter(n=>n.auto).forEach(n=>collapseAutoNode(g,n.id));
+  resetTreeOffsets(g);   // may have split a tree — see delWire's comment
   selectOnly(null); renderGraph(); markDirty();
 }
 /* A wire's direction is never a choice the user makes — it's derived from the
@@ -505,9 +504,17 @@ function connect(fn,fi,tn,ti){
     const portType=(portsOf(dst).ins[ti]||{}).type;
     const mergeKind=mergeKindFor(portType);
     if(!mergeKind){ toast('this input already has a connection — only boolean (→OR) or numeric (→ADD) inputs accept more than one wire'); return; }
+    /* a real structural change is about to happen from here on — clear
+       every tree's stored offset so computeLayout re-anchors around
+       wherever each one currently sits (see resetTreeOffsets/
+       computeLayout in model.js). If this wire is about to join two
+       previously separate trees, this is what makes the older of the two
+       stay exactly in place while the newer one snaps into the unified
+       layout around it. */
+    resetTreeOffsets(g);
     const exFn=existing.f[0], exFi=existing.f[1];
     const mt=typeOf(mergeKind);
-    const m={id:uid('n'),k:'blk',type:mergeKind,params:{}};
+    const m={id:uid('n'),k:'blk',type:mergeKind,params:{},ox:0,oy:0};
     /* netor has no palette existence of its own (hidden:true) — it only
        ever appears through this auto-merge path, so it keeps the auto
        marker (tiny dot rendering, collapses away on its own once reduced
@@ -527,6 +534,7 @@ function connect(fn,fi,tn,ti){
     renderGraph(); markDirty();
     return;
   }
+  resetTreeOffsets(g);   // see the comment above — this wire may be joining two previously separate trees
   _wireUp(g,fn,fi,tn,ti);
   renderGraph(); markDirty();
 }
@@ -570,12 +578,34 @@ function collapseAutoNode(g,nodeId){
 
 /* ---------- canvas interaction ------------------------------------ */
 let drag=null;
+/* free-drag: moves a whole tree by directly incrementing its stored
+   (ox,oy) offset (see computeLayout in model.js) with the cursor, instead
+   of the row-reorder splice dragPreview() does. No collision avoidance —
+   two trees are free to overlap, per explicit spec — so this is nothing
+   more than "add the cursor's delta to wherever this tree's offset
+   already was". */
+function startFreeDrag(g,n,e){
+  selectOnly(n.id);
+  const treeIds=[...treeOf(g,[n.id])];
+  const start=toGraph(e.clientX,e.clientY);
+  const baseOx=n.ox||0, baseOy=n.oy||0;
+  treeIds.forEach(id=>{const d=nodesL.querySelector(`.node[data-id="${id}"]`); if(d)d.classList.add('moving');});
+  drag={type:'freemove',treeIds,start,baseOx,baseOy,moved:false};
+}
 cwrap.addEventListener('mousedown',e=>{
   if(e.button===1||e.button===2) return;
   const port=e.target.closest('.port');
   if(port){ e.preventDefault(); startWireDrag(port,e); return; }
   const nd=e.target.closest('.node');
   if(nd){ const n=nodeById(nd.dataset.id);
+    const g0=G();
+    /* a root (nothing forward-feeds it) is the one kind of block that
+       drags its WHOLE tree freely around the canvas — every other block
+       still does the row-reorder-within-tree drag below. alt keeps its
+       existing meaning (single-node reorder, ignoring tree) even on a
+       root, since that's a different, more surgical operation from
+       moving the tree itself. */
+    if(isRoot(g0,n.id) && !e.altKey){ startFreeDrag(g0,n,e); e.preventDefault(); return; }
     if(!sel.nodes.has(n.id)) selectOnly(n.id);
     const g=G();
     const seeds=[...sel.nodes];
@@ -624,6 +654,15 @@ document.addEventListener('mousemove',e=>{
     movers.forEach(id=>{const d=nodesL.querySelector(`.node[data-id="${id}"]`); if(d)d.classList.add('moving');});
     for(const n of g.nodes){ const d=nodesL.querySelector(`.node[data-id="${n.id}"]`); if(d){d.style.left=n.x+'px'; d.style.top=n.y+'px';} }
     rerouteAll(); }
+  else if(drag.type==='freemove'){
+    drag.moved=true;
+    const p=toGraph(e.clientX,e.clientY);
+    const ox=snap(drag.baseOx+(p.x-drag.start.x)), oy=snap(drag.baseOy+(p.y-drag.start.y));
+    const g=G();
+    drag.treeIds.forEach(id=>{ const n=nodeById(id); if(n){ n.ox=ox; n.oy=oy; } });
+    computeLayout(g);
+    for(const n of g.nodes){ const d=nodesL.querySelector(`.node[data-id="${n.id}"]`); if(d){d.style.left=n.x+'px'; d.style.top=n.y+'px';} }
+    rerouteAll(); }
   else if(drag.type==='wire'){ const p=toGraph(e.clientX,e.clientY);
     const anc={x:drag.ax,y:drag.ay};
     /* just a straight line to the pointer while dragging — the orthogonal
@@ -646,7 +685,7 @@ document.addEventListener('mouseup',e=>{
     } else renderGraph();
     $$('.port.tgt').forEach(x=>x.classList.remove('tgt'));
   }
-  if(drag.type==='node'){ $$('.node.moving').forEach(d=>d.classList.remove('moving'));
+  if(drag.type==='node'||drag.type==='freemove'){ $$('.node.moving').forEach(d=>d.classList.remove('moving'));
     if(drag.moved){ renderGraph(); markDirty(); } }
   drag=null;
 });

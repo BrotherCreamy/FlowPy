@@ -469,6 +469,38 @@ function treeOf(graph, seeds){
     } }
   return set;
 }
+/* a block with nothing forward-feeding it — the one kind of block that can
+   be dragged to move its whole tree freely (see startFreeDrag in
+   editor.js) rather than reordering branches within it. Same notion of
+   "root" layoutX already pins to LEFT_MARGIN below, exposed here as its
+   own function so the drag code doesn't have to re-derive it. */
+function isRoot(graph,id){
+  return !graph.wires.some(w=>w.t[0]===id && !isBack(graph,w));
+}
+/* every connected component of graph.nodes (ignoring wire direction, same
+   as treeOf), each handed back as its own small {nodes,wires} subgraph —
+   this is what lets computeLayout below lay each tree out in its own
+   local coordinate space, independent of every other tree, instead of
+   auto-stacking all of them beneath one shared LEFT_MARGIN/TOP_MARGIN the
+   way this file used to. A group's nodes keep graph.nodes' relative order
+   (Array.filter preserves it), so group.nodes[0] is always "whichever
+   member of this tree has the earliest array position" — the same
+   "earliest array position is canonical" rule layoutRows already uses
+   (see its own firstIndex) — which is what makes group.nodes[0] a stable,
+   well-defined anchor for the tree's own offset below. */
+function treeGroups(graph){
+  const seen=new Set(), groups=[];
+  for(const n of graph.nodes){
+    if(seen.has(n.id)) continue;
+    const ids=treeOf(graph,[n.id]);
+    ids.forEach(id=>seen.add(id));
+    groups.push({
+      nodes: graph.nodes.filter(x=>ids.has(x.id)),
+      wires: graph.wires.filter(w=>ids.has(w.f[0])&&ids.has(w.t[0]))
+    });
+  }
+  return groups;
+}
 /* --- layout: a pure function from graph structure to (x,y) ---------------
    No position is ever "corrected" — every render recomputes every block's x
    and y from scratch, from two things only:
@@ -684,10 +716,55 @@ function layoutY(graph){
    geometry yet to read a direction off. wireBack() stays available for the
    one place that legitimately needs a geometric guess: bootstrapping .back
    for a project file saved before it existed (see tagWires). */
+/* Each tree (treeGroups above) now owns a free-floating (ox,oy) offset,
+   dragged directly by the user (startFreeDrag in editor.js) instead of
+   every root auto-stacking beneath the last one at a shared LEFT_MARGIN.
+   layoutX/layoutY are unchanged and still exactly what their own comments
+   above say — a pure function of structure — just now run once PER TREE,
+   in that tree's own local space (as if it were the only thing on the
+   canvas), with the stored offset added on top afterward.
+
+   A tree's offset is undefined exactly when nothing has ever anchored it
+   under the CURRENT structure: a project saved before this feature
+   existed, or membership that just changed (editor.js clears ox/oy via
+   resetTreeOffsets() right before any edit that can merge or split
+   trees — connect, delWire, delSelection, retypeBlock's wire pruning).
+   In that case the offset isn't defaulted to zero; it's DERIVED so the
+   tree's own canonical member (nodes[0] — see treeGroups) ends up exactly
+   where it's already, visibly sitting: its last-rendered x/y, still
+   sitting untouched on the node object until the fresh local layout below
+   overwrites it. That single rule covers three cases at once, not three
+   separate ones: an old project's hand/auto-placed trees keep their exact
+   positions the first time this runs; cutting a wire leaves both
+   resulting halves exactly where they were, because each one re-anchors
+   around its OWN canonical member's own last position; and connecting two
+   previously separate trees keeps the older of the two (whichever
+   contains the overall-earliest node — already this file's standing
+   definition of "canonical", see layoutRows' firstIndex) exactly in
+   place while the newer one snaps into the newly-unified layout around
+   it. */
 function computeLayout(graph){
-  layoutX(graph);
-  layoutY(graph);
+  for(const grp of treeGroups(graph)){
+    const ref=grp.nodes[0];
+    const anchor = ref.ox===undefined ? {x:ref.x,y:ref.y} : null;
+    layoutX(grp); layoutY(grp);
+    const ox = anchor ? snap(anchor.x-ref.x) : (ref.ox||0);
+    const oy = anchor ? snap(anchor.y-ref.y) : (ref.oy||0);
+    for(const n of grp.nodes){ n.ox=ox; n.oy=oy; n.x+=ox; n.y+=oy; }
+  }
 }
+/* clears every node's stored tree-offset, forcing computeLayout above to
+   re-derive one (see its own comment) next time it runs — call right
+   before any edit that could change which nodes are connected to which
+   (a wire added or removed), so trees re-anchor around wherever they
+   currently, visibly sit rather than resuming an offset that assumed a
+   membership that no longer holds. Always clears the WHOLE graph rather
+   than trying to scope down to just the trees an edit actually touched:
+   an untouched tree just re-derives the exact same offset it already had
+   (its canonical member's last position didn't change), so this is a
+   no-op for it — cheap enough on graphs this size not to be worth the
+   risk of a scoping bug. */
+function resetTreeOffsets(g){ g.nodes.forEach(n=>{ delete n.ox; delete n.oy; }); }
 function snapNode(n){ n.x=snap(n.x); n.y=snap(n.y); return n; }
 function snapGraph(g){ (g.nodes||[]).forEach(snapNode); }
 function snapProject(p){ snapGraph(p.main); Object.values(p.types||{}).forEach(t=>t.graph&&snapGraph(t.graph)); }
