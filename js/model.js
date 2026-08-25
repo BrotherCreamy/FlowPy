@@ -634,7 +634,7 @@ function layoutX(graph){
   runPass(null);                             // pass 1: provisional x, blind to crossing wires
   const prior={}; graph.nodes.forEach(n=>prior[n.id]=n.x);
   runPass(prior);                            // pass 2: final x, crossing-aware using pass 1's positions
-  positionFloatingRoots(graph);
+  positionFloatingRoots(graph,rowOf);
 }
 /* a root normally has no structural reason to sit anywhere but
    LEFT_MARGIN — nothing forward-feeds it, so nothing pulls its x. But a
@@ -642,14 +642,28 @@ function layoutX(graph){
    block some entirely different chain also feeds, say) DOES have a
    structural reason: it should sit right next to what it feeds, the same
    way any other block derives its x from a REQUIREMENT, just mirrored —
-   pulled backward from a target instead of forward from a source. Runs
-   only after both passes above have settled every node WITH a forward
-   requirement, so "where do my targets already sit" is a real, finished
-   answer, not a stale one. A root feeding nothing at all has nothing to
-   be pulled toward, so it stays at LEFT_MARGIN. Deterministic and still a
-   pure function of the finished layout — no memory of any previous
-   position is needed to make a floating root land somewhere sensible. */
-function positionFloatingRoots(graph){
+   pulled backward from a target instead of forward from a source.
+
+   "Right next to" has to mean genuinely clear, not just left of the
+   target's own x: the wire still has to travel from the root's row to
+   the target's row, and every OTHER block sitting in any row that span
+   crosses is a real obstacle in its path — a forward wire is never
+   allowed to double back leftward around one (see the router's own
+   comment for why that's a hard rule, not just an aesthetic preference).
+   So the root is pushed left of the leftmost edge of anything occupying
+   the root's own row, the target's row, or any row in between — not just
+   the target itself — which is what guarantees a straight, obstacle-free
+   corridor exists for the router to find, rather than leaving it to
+   detour around a block that got left in the way.
+
+   Runs only after both passes above have settled every node WITH a
+   forward requirement, so "where do my targets, and whatever's around
+   them, already sit" is a real, finished answer, not a stale one. A root
+   feeding nothing at all has nothing to be pulled toward, so it stays at
+   LEFT_MARGIN. Still a pure function of the finished layout — no memory
+   of any previous position is needed to make a floating root land
+   somewhere sensible. */
+function positionFloatingRoots(graph,rowOf){
   for(const n of graph.nodes){
     if(n.k==='gin'||n.k==='gout') continue;
     const hasForwardIn=graph.wires.some(w=>w.t[0]===n.id&&!isBack(graph,w));
@@ -657,7 +671,16 @@ function positionFloatingRoots(graph){
     const targets=graph.wires.filter(w=>w.f[0]===n.id&&!isBack(graph,w))
       .map(w=>graph.nodes.find(x=>x.id===w.t[0])).filter(Boolean);
     if(!targets.length) continue;
-    const leftmost=Math.min(...targets.map(t=>t.x));
+    let leftmost=Math.min(...targets.map(t=>t.x));
+    for(const t of targets){
+      const r0=Math.min(rowOf[n.id],rowOf[t.id]), r1=Math.max(rowOf[n.id],rowOf[t.id]);
+      for(const other of graph.nodes){
+        if(other===n || other===t) continue;
+        const r=rowOf[other.id];
+        if(r===undefined || r<r0 || r>r1) continue;
+        leftmost=Math.min(leftmost, other.x);
+      }
+    }
     n.x=snap(leftmost-MINGAP-nodeSize(n).w);
   }
 }
