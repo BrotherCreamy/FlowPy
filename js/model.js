@@ -726,10 +726,25 @@ function positionFloatingRoots(graph,rowOf){
    never end up with another, unrelated tree's rows sandwiched in the gap
    between its own. Which tree goes first is decided by the earliest array
    position of ANY of its members, same rule as everywhere else: order comes
-   from the array, nothing else. */
+   from the array, nothing else.
+
+   Row assignment is a genuine INSERTION into an ordered list (`rows`, each
+   entry the ids sharing that row), not an ever-incrementing counter that
+   only ever appends: a fan-out's second-and-later branch is spliced in
+   directly after its parent's row, and — the same operation, not a
+   separate one — so is any OTHER root feeding a node that's already being
+   placed (a CONST wired sideways into a block some entirely different
+   chain also feeds). Both are "this belongs right next to where it
+   structurally attaches", so both use the identical splice; a floating
+   root doesn't get shunted to the tail of the whole tree once every other
+   branch has already claimed the rows in between, the way appending to a
+   flat counter would. rowIndexOf() re-reads a node's row fresh every time
+   rather than trusting an earlier snapshot, since a splice can shift it
+   between one use and the next. */
 function layoutRows(graph){
-  const rowOf={};
   const arrayIndex={}; graph.nodes.forEach((n,i)=>arrayIndex[n.id]=i);
+  const rows=[];                                       // rows[i] = ids sharing row i, in final row order
+  const rowIndexOf=id=>rows.findIndex(r=>r.includes(id));
   const seen=new Set(), trees=[];
   for(const n of graph.nodes){
     if(seen.has(n.id)) continue;
@@ -739,9 +754,10 @@ function layoutRows(graph){
     trees.push({ids,firstIndex});
   }
   trees.sort((a,b)=>a.firstIndex-b.firstIndex);
-  let nextRow=0;
+  const placed=new Set();
   for(const tree of trees){
     const members=graph.nodes.filter(n=>tree.ids.has(n.id));
+    const hasForwardIn=id=>graph.wires.some(w=>w.t[0]===id && !isBack(graph,w) && tree.ids.has(w.f[0]));
     const forwardOutsOf=id=>{
       const outs=[], seenC=new Set();
       for(const w of graph.wires){
@@ -751,15 +767,63 @@ function layoutRows(graph){
       outs.sort((a,b)=>arrayIndex[a]-arrayIndex[b]);        // deterministic: earlier in the array = first branch
       return outs;
     };
-    const place=(id,row)=>{
-      if(rowOf[id]!==undefined) return;
-      rowOf[id]=row;
-      forwardOutsOf(id).forEach((cid,i)=>{ if(i===0) place(cid,row); else place(cid,++nextRow); });
+    /* every OTHER root feeding this node besides whichever one's cascade
+       is placing it right now — still unplaced, so not the parent of
+       THIS call. */
+    const floatingRootsFeeding=id=>{
+      const list=[];
+      for(const w of graph.wires){
+        if(w.t[0]!==id||isBack(graph,w)||!tree.ids.has(w.f[0])) continue;
+        const src=w.f[0];
+        if(placed.has(src)||hasForwardIn(src)) continue;
+        list.push(src);
+      }
+      list.sort((a,b)=>arrayIndex[a]-arrayIndex[b]);
+      return list;
     };
-    const hasForwardIn=id=>graph.wires.some(w=>w.t[0]===id && !isBack(graph,w) && tree.ids.has(w.f[0]));
-    for(const n of members){ if(rowOf[n.id]!==undefined||hasForwardIn(n.id)) continue; place(n.id,nextRow); nextRow++; }
-    for(const n of members){ if(rowOf[n.id]===undefined){ place(n.id,nextRow); nextRow++; } }  // multi-input within the tree
+    /* returns the highest row index this call's own subtree ended up
+       consuming, so a SIBLING insertion (another of id's own branches, or
+       another floating root feeding the SAME id) can splice in right
+       after everything the PREVIOUS one actually used — not right after
+       id's own row again, which is only correct for the very first
+       insertion at this level. Using id's own row for every sibling would
+       make two unrelated insertions (say, a floating root feeding id, and
+       id's own second forward branch) both target the identical slot,
+       silently bumping whichever was placed first one extra row further
+       than it needed to be.
+
+       `startCursor` carries that same guarantee across a "same row" link
+       too (the i===0 case below, and the outer entry point) — a whole
+       CHAIN of nodes can share one row (netor -> counter -> A>B, say),
+       and each one of THEM can independently have its own floating roots
+       or branches to insert. Without threading the cursor through the
+       chain, each link's own place() call would start counting from
+       scratch at its shared row, oblivious to insertions an EARLIER link
+       on the same row already made — and repeatedly bump that earlier
+       link's insertion one row further every time a later link inserts
+       something of its own, since both keep computing "the slot right
+       after our shared row" independently. */
+    const place=(id,rowIdx,startCursor)=>{
+      if(placed.has(id)) return rowIndexOf(id);
+      placed.add(id);
+      rows[rowIdx].push(id);
+      let cursor=Math.max(rowIdx,startCursor===undefined?rowIdx:startCursor);
+      for(const r of floatingRootsFeeding(id)){
+        const at=cursor+1;
+        rows.splice(at,0,[]);
+        cursor=place(r,at);
+      }
+      forwardOutsOf(id).forEach((cid,i)=>{
+        if(i===0) cursor=Math.max(cursor,place(cid,rowIdx,cursor));
+        else{ const at=cursor+1; rows.splice(at,0,[]); cursor=place(cid,at); }
+      });
+      return cursor;
+    };
+    for(const n of members){ if(placed.has(n.id)||hasForwardIn(n.id)) continue; rows.push([]); place(n.id,rows.length-1); }
+    for(const n of members){ if(!placed.has(n.id)){ rows.push([]); place(n.id,rows.length-1); } }  // multi-input within the tree
   }
+  const rowOf={};
+  rows.forEach((ids,r)=>ids.forEach(id=>rowOf[id]=r));
   return rowOf;
 }
 function layoutY(graph){
