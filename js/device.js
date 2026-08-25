@@ -191,15 +191,20 @@ Wiring a second signal onto an input that's already fed doesn't replace the conn
 <b>ADD</b> (numeric) block is spliced in automatically so both reach it, chaining further for a third source and beyond,
 and collapsing back to a plain wire the moment you disconnect down to one.
 <br><br>
-<b>A block's position is computed, never stored</b><br>
-There is no x/y saved anywhere — every render lays the whole diagram out fresh from two things only: which block feeds
-which (its column), and the order blocks appear in the underlying model (its row). A block fed by a forward wire sits
-at <b>exactly</b> the minimum distance from its source — there's no such thing as an arbitrarily long forward wire. A
-block with nothing feeding it forward — the start of an island — always aligns to the same leftmost column.<br>
-Dragging is therefore <i>reordering</i>, not placement: grab a block and everything it feeds moves with it as one unit
-(hold <b>Alt</b> to move just the one block); as you drag it past another block or island, they visibly swap places,
-live, before you let go — release to commit. Disconnecting a block from its island never moves the island: cutting a
-wire doesn't touch that order, so nothing shifts except the piece that just became free, which takes the next open row.
+<b>A tree's own layout is computed, never stored — only its position is</b><br>
+A tree is a self-standing network: every block reachable from every other, wires followed either direction. Within one,
+there's no x/y saved anywhere — every render lays it out fresh from two things only: which block feeds which (its
+column), and the order blocks appear in the underlying model (its row). A block fed by a forward wire sits at
+<b>exactly</b> the minimum distance from its source — there's no such thing as an arbitrarily long forward wire. A
+block with nothing feeding it forward normally aligns to the tree's own leftmost column, <i>unless</i> it feeds
+something itself (a constant wired sideways into a block some other chain also feeds, say) — then it sits right next
+to whatever that is instead.<br>
+The <b>one</b> thing actually remembered is a tree's position: grab a root block (nothing forward-feeds it) to drag the
+whole tree anywhere — trees are free to overlap, nothing pushes back. Grab any other block to reorder within its own
+tree instead (hold <b>Alt</b> to move just the one block); as you drag it past another block, they visibly swap
+places, live, before you let go. Connecting two separate trees keeps the older one exactly where it is while the newer
+one snaps into the unified layout around it; disconnecting leaves both halves exactly where they were — nothing
+teleports either way.
 <br><br>
 <b>Wires and direction</b><br>
 Wires are straight orthogonal runs. The vertical shaft sits as far left as it can &mdash; one unit clear of the output

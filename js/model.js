@@ -472,8 +472,9 @@ function treeOf(graph, seeds){
 /* a block with nothing forward-feeding it — the one kind of block that can
    be dragged to move its whole tree freely (see startFreeDrag in
    editor.js) rather than reordering branches within it. Same notion of
-   "root" layoutX already pins to LEFT_MARGIN below, exposed here as its
-   own function so the drag code doesn't have to re-derive it. */
+   "root" layoutX uses below (see its own required===-Infinity branch and
+   positionFloatingRoots), exposed here as its own function so the drag
+   code doesn't have to re-derive it. */
 function isRoot(graph,id){
   return !graph.wires.some(w=>w.t[0]===id && !isBack(graph,w));
 }
@@ -500,33 +501,6 @@ function treeGroups(graph){
     });
   }
   return groups;
-}
-/* partitions one tree's nodes into "islands": each root's (isRoot above)
-   OWN forward closure, first-claim-wins in array order when a node is
-   reachable from more than one root (a fan-in — e.g. two independent
-   sources feeding one comparator) — same "earliest array position is
-   canonical" convention as everywhere else in this file. This is finer
-   than treeGroups: a tree can be ONE connected component (needed for
-   layoutX/layoutY below, which has to see the whole structure to get
-   corridors/rows right) while still containing SEVERAL independent
-   islands for OFFSET purposes — computeLayout stores one offset per
-   island, not one per whole tree, specifically so an unrelated side-root
-   (a CONST feeding sideways into a block some entirely different chain
-   ALSO happens to feed) keeps its own free-floating position even when
-   the rest of the tree it's technically part of gets restructured by a
-   connect/disconnect elsewhere. */
-function rootIslands(graph, nodes){
-  const nodeIds=new Set(nodes.map(n=>n.id));
-  const claimed=new Set(), islands=[];
-  for(const r of nodes){
-    if(!isRoot(graph,r.id) || claimed.has(r.id)) continue;
-    const ids=[...forwardClosure(graph,[r.id])].filter(id=>nodeIds.has(id)&&!claimed.has(id));
-    ids.forEach(id=>claimed.add(id));
-    islands.push(nodes.filter(n=>ids.includes(n.id)));
-  }
-  const leftover=nodes.filter(n=>!claimed.has(n.id));   // defensive: shouldn't normally happen (see comment above)
-  if(leftover.length) islands.push(leftover);
-  return islands;
 }
 /* --- layout: a pure function from graph structure to (x,y) ---------------
    No position is ever "corrected" — every render recomputes every block's x
@@ -660,6 +634,32 @@ function layoutX(graph){
   runPass(null);                             // pass 1: provisional x, blind to crossing wires
   const prior={}; graph.nodes.forEach(n=>prior[n.id]=n.x);
   runPass(prior);                            // pass 2: final x, crossing-aware using pass 1's positions
+  positionFloatingRoots(graph);
+}
+/* a root normally has no structural reason to sit anywhere but
+   LEFT_MARGIN — nothing forward-feeds it, so nothing pulls its x. But a
+   root that itself forward-feeds something (a CONST wired sideways into a
+   block some entirely different chain also feeds, say) DOES have a
+   structural reason: it should sit right next to what it feeds, the same
+   way any other block derives its x from a REQUIREMENT, just mirrored —
+   pulled backward from a target instead of forward from a source. Runs
+   only after both passes above have settled every node WITH a forward
+   requirement, so "where do my targets already sit" is a real, finished
+   answer, not a stale one. A root feeding nothing at all has nothing to
+   be pulled toward, so it stays at LEFT_MARGIN. Deterministic and still a
+   pure function of the finished layout — no memory of any previous
+   position is needed to make a floating root land somewhere sensible. */
+function positionFloatingRoots(graph){
+  for(const n of graph.nodes){
+    if(n.k==='gin'||n.k==='gout') continue;
+    const hasForwardIn=graph.wires.some(w=>w.t[0]===n.id&&!isBack(graph,w));
+    if(hasForwardIn) continue;
+    const targets=graph.wires.filter(w=>w.f[0]===n.id&&!isBack(graph,w))
+      .map(w=>graph.nodes.find(x=>x.id===w.t[0])).filter(Boolean);
+    if(!targets.length) continue;
+    const leftmost=Math.min(...targets.map(t=>t.x));
+    n.x=snap(leftmost-MINGAP-nodeSize(n).w);
+  }
 }
 /* used to also clamp x to stay "left of the feedback source" for any node
    with a backward-incoming wire — the idea being a shorter feedback shaft.
@@ -743,69 +743,64 @@ function layoutY(graph){
    geometry yet to read a direction off. wireBack() stays available for the
    one place that legitimately needs a geometric guess: bootstrapping .back
    for a project file saved before it existed (see tagWires). */
-/* Each ISLAND (rootIslands above — finer than a whole tree, see its own
-   comment) owns a free-floating (ox,oy) offset, dragged directly by the
-   user (startFreeDrag in editor.js) instead of every root auto-stacking
-   beneath the last one at a shared LEFT_MARGIN. layoutX/layoutY are
-   unchanged and still exactly what their own comments above say — a pure
-   function of structure — just now run once PER TREE (connected
-   component — has to see the whole structure for corridors/rows to come
-   out right), in that tree's own local space, with each of its islands'
-   offsets added on top afterward, independently.
+/* Each tree (treeGroups above — one connected component) owns exactly one
+   free-floating (ox,oy) offset, dragged directly by the user
+   (startFreeDrag in editor.js) instead of every root auto-stacking
+   beneath the last one at a shared LEFT_MARGIN. Blocks and wires
+   themselves carry no position of their own — n.x/n.y are pure output,
+   recomputed from scratch below on every call, never read back in as
+   input — the offset is the ONLY thing remembered between renders, and it
+   lives OFF the node objects entirely, in graph.treePos: a small list of
+   {seed, ox, oy}, seed being whichever node the offset was last found
+   attached to. layoutX/layoutY are unchanged and still exactly what
+   their own comments say — a pure function of structure — run once per
+   tree, in that tree's own local space, with its one offset added on top.
 
-   An island's offset is undefined exactly when nothing has ever anchored
-   it under the CURRENT structure: a project saved before this feature
-   existed, or membership that just changed (editor.js clears ox/oy via
-   resetTreeOffsets() right before any edit that can merge or split
-   trees — connect, delWire, delSelection, retypeBlock's wire pruning).
-   In that case the offset isn't defaulted to zero; it's DERIVED so the
-   island's own canonical member (its own root, or whichever of them is
-   array-earliest if it swallowed more than one — see rootIslands) ends up
-   exactly where it's already, visibly sitting: its last-rendered x/y,
-   still sitting untouched on the node object until the fresh local layout
-   below overwrites it. That single rule covers three cases at once, not
-   three separate ones: an old project's hand/auto-placed trees keep their
-   exact positions the first time this runs; cutting a wire leaves both
-   resulting halves exactly where they were, because each one re-anchors
-   around its own canonical member's own last position; and connecting two
-   previously separate trees keeps the older of the two (whichever island
-   contains the overall-earliest node) exactly in place while the newer
-   one snaps into the newly-unified layout around it — SPECIFICALLY just
-   the newer one's own island, not the whole tree it now happens to share
-   a connected component with: an unrelated side-root elsewhere in that
-   same tree (a CONST feeding sideways into a block some entirely
-   different chain also feeds) is its own separate island by construction
-   (it was never in anyone's forward closure), so it keeps its own offset
-   completely untouched by a merge or split happening elsewhere in the
-   same tree. */
+   A tree's entry is looked up by checking its OWN members, in array
+   order, against every recorded seed — the first hit wins, same
+   "earliest array position is canonical" convention this file uses
+   everywhere else (see layoutRows' firstIndex). No entry found means
+   this exact membership has never been anchored before: a project saved
+   before this feature existed, or a tree that just changed shape (a wire
+   was connected or cut, changing who's grouped with whom). Either way,
+   the new entry isn't defaulted to zero; it's derived so the tree's
+   array-earliest member ends up exactly where it's already, visibly
+   sitting — its last-rendered x/y, still sitting untouched on the node
+   object until the fresh local layout below overwrites it.
+
+   That's the whole mechanism, and it's what makes every case work
+   without any case-specific code: an old project's hand/auto-placed
+   trees keep their exact positions the first time this runs. Cutting a
+   wire that splits a tree in two leaves both halves exactly where they
+   were — the piece that kept the old seed finds its old entry unchanged;
+   the other piece finds no entry and gets a fresh one anchored to
+   wherever IT was already sitting. Connecting two previously separate
+   trees keeps the older of the two (whichever contains the
+   array-earliest node, so whichever entry gets found first) exactly in
+   place while the newer one's own former entry goes unused — and because
+   positionFloatingRoots (layoutX, above) already gives every root a
+   structurally sensible local position relative to whatever it feeds,
+   not just LEFT_MARGIN, that one shared offset is enough on its own to
+   keep an unrelated side-root (a CONST feeding sideways into a block some
+   entirely different chain also feeds) sitting right where it belongs
+   relative to its own tree, with no extra bookkeeping needed for it. */
 function computeLayout(graph){
+  graph.treePos=(graph.treePos||[]).filter(e=>graph.nodes.some(n=>n.id===e.seed));
   for(const grp of treeGroups(graph)){
-    const islands=rootIslands(grp,grp.nodes);
-    const anchors=islands.map(isl=>{
-      const ref=isl[0];
-      return ref.ox===undefined ? {x:ref.x,y:ref.y} : null;
-    });
+    const grpIds=new Set(grp.nodes.map(n=>n.id));
+    let entry=null;
+    for(const n of grp.nodes){ entry=graph.treePos.find(e=>e.seed===n.id); if(entry) break; }
+    const seed=grp.nodes[0];
+    const before=entry?null:{x:seed.x,y:seed.y};
     layoutX(grp); layoutY(grp);
-    islands.forEach((isl,i)=>{
-      const ref=isl[0], anchor=anchors[i];
-      const ox = anchor ? snap(anchor.x-ref.x) : (ref.ox||0);
-      const oy = anchor ? snap(anchor.y-ref.y) : (ref.oy||0);
-      for(const n of isl){ n.ox=ox; n.oy=oy; n.x+=ox; n.y+=oy; }
-    });
+    if(!entry){
+      entry={seed:seed.id, ox:snap(before.x-seed.x), oy:snap(before.y-seed.y)};
+      graph.treePos.push(entry);
+    }
+    graph.treePos=graph.treePos.filter(e=>e===entry || !grpIds.has(e.seed));   // drop now-superseded entries this group swallowed
+    for(const n of grp.nodes){ n.x+=entry.ox; n.y+=entry.oy; }
   }
 }
-/* clears every node's stored tree-offset, forcing computeLayout above to
-   re-derive one (see its own comment) next time it runs — call right
-   before any edit that could change which nodes are connected to which
-   (a wire added or removed), so trees re-anchor around wherever they
-   currently, visibly sit rather than resuming an offset that assumed a
-   membership that no longer holds. Always clears the WHOLE graph rather
-   than trying to scope down to just the trees an edit actually touched:
-   an untouched tree just re-derives the exact same offset it already had
-   (its canonical member's last position didn't change), so this is a
-   no-op for it — cheap enough on graphs this size not to be worth the
-   risk of a scoping bug. */
-function resetTreeOffsets(g){ g.nodes.forEach(n=>{ delete n.ox; delete n.oy; }); }
 function snapNode(n){ n.x=snap(n.x); n.y=snap(n.y); return n; }
 function snapGraph(g){ (g.nodes||[]).forEach(snapNode); }
 function snapProject(p){ snapGraph(p.main); Object.values(p.types||{}).forEach(t=>t.graph&&snapGraph(t.graph)); }

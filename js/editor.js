@@ -225,12 +225,14 @@ function addNode(kind,t,x,y){
   if(kind==='blk'){ n.type=t.id; n.params={}; (t.params||[]).forEach(p=>n.params[p.name]=p.def); }
   if(kind==='const'){ n.value=1; n.vtype='num'; }
   if(kind==='vget'||kind==='vset'||kind==='var'){ if(!P_.vars.length){ toast('Create a variable first (Vars tab)'); return; } n.varName=P_.vars[0].name; }
+  g.nodes.push(n);
   /* a brand-new node is its own single-node tree, with nothing yet
      forward-feeding it, so its LOCAL layout always resolves to exactly
      (LEFT_MARGIN,TOP_MARGIN) — the drop point becomes its free-floating
-     offset instead, same mechanism a drag uses to move a tree. */
-  n.ox=snap(x-LEFT_MARGIN); n.oy=snap(y-TOP_MARGIN);
-  g.nodes.push(n);
+     offset instead (see computeLayout, model.js), same mechanism a drag
+     uses to move a tree. */
+  g.treePos=g.treePos||[];
+  g.treePos.push({seed:n.id, ox:snap(x-LEFT_MARGIN), oy:snap(y-TOP_MARGIN)});
   selectOnly(n.id); renderGraph(); markDirty(); return n;
 }
 
@@ -269,7 +271,6 @@ function retypeBlock(n,newName){
     return true;
   });
   g.nodes.filter(x=>x.auto).forEach(x=>collapseAutoNode(g,x.id));
-  resetTreeOffsets(g);   // retyping can drop wires (fewer ports) and split a tree — see delWire's comment
   renderPalette(); renderGraph(); markDirty();
 }
 function titleEl(n){
@@ -459,12 +460,10 @@ function delWire(id){
   const w=g.wires.find(x=>x.id===id);
   g.wires=g.wires.filter(w=>w.id!==id);
   if(w){ collapseAutoNode(g,w.t[0]); collapseAutoNode(g,w.f[0]); }
-  /* this may just have split one tree into two — clear every tree's stored
-     offset so each resulting piece re-anchors around wherever it's
-     currently, visibly sitting (see resetTreeOffsets/computeLayout in
-     model.js) instead of both halves trying to resume the one offset that
-     assumed they were still a single tree. */
-  resetTreeOffsets(g);
+  /* may just have split one tree into two — no special handling needed:
+     computeLayout (model.js) finds two connected components next render,
+     and any piece that doesn't already own a graph.treePos entry gets a
+     fresh one anchored to wherever it's currently, visibly sitting. */
   renderGraph(); markDirty();
 }
 function delSelection(){
@@ -473,7 +472,6 @@ function delSelection(){
   g.nodes=g.nodes.filter(n=>!ids.includes(n.id));
   g.wires=g.wires.filter(w=>!ids.includes(w.f[0])&&!ids.includes(w.t[0])&&!sel.wires.has(w.id));
   g.nodes.filter(n=>n.auto).forEach(n=>collapseAutoNode(g,n.id));
-  resetTreeOffsets(g);   // may have split a tree — see delWire's comment
   selectOnly(null); renderGraph(); markDirty();
 }
 /* A wire's direction is never a choice the user makes — it's derived from the
@@ -493,31 +491,19 @@ function delSelection(){
    at a junction — see the router's fan-out trimming in js/router.js for how
    that's drawn without duplicating or overlapping the shared run. */
 function mergeKindFor(portType){ return portType==='bool'?'netor' : portType==='num'?'add' : null; }
-/* after a wire that just merged two previously separate trees, this makes
-   the FORMER SUBORDINATE tree move as one rigid unit. computeLayout
-   (model.js) already correctly snaps tn's own island — everything tn now
-   forward-feeds — into line with the parent, since that's driven by real
-   structure (tn gained a forward-in). But an unrelated side-root within
-   that same former tree (a CONST feeding sideways into a block some
-   entirely different chain also feeds — see rootIslands in model.js) has
-   no NEW structural reason to move, so computeLayout's generic per-island
-   rule just freezes it at its own last absolute position — which reads as
-   "left behind" the instant tn's own island snaps away from it. This
-   nudges every such leftover island by the SAME amount tn itself just
-   moved, so the whole former subordinate tree travels together, keeping
-   how it looked relative to ITSELF, not just relative to the canvas. */
-function alignFormerSubordinate(g,tn,subTreeIds,beforeTnAbs){
-  computeLayout(g);   // fresh positions reflecting the wire just added
-  const after=nodeById(tn);
-  const dx=snap(after.x-beforeTnAbs.x), dy=snap(after.y-beforeTnAbs.y);
-  if(!dx && !dy) return;
-  const tnClosure=forwardClosure(g,[tn]);
-  for(const id of subTreeIds){
-    if(id===tn || tnClosure.has(id)) continue;
-    const n=nodeById(id); if(!n) continue;
-    n.ox=snap((n.ox||0)+dx); n.oy=snap((n.oy||0)+dy);
-  }
-}
+/* connect() itself needs no position-handling code at all — merging two
+   previously separate trees just means computeLayout (model.js) finds
+   them as one connected component next render and looks up ONE shared
+   entry in graph.treePos for the whole thing, picked by whichever tree
+   contains the array-earliest node (already this file's standing
+   "canonical" convention). That's what keeps the older tree exactly in
+   place while the newer one's own former entry goes unused, and — since
+   positionFloatingRoots (model.js) already gives every root a
+   structurally sensible LOCAL position relative to whatever it feeds —
+   is enough on its own to keep every part of the newer tree, including
+   an unrelated side-root like a CONST, sitting correctly relative to the
+   rest of its own tree too. See computeLayout's own comment for the full
+   mechanism. */
 function connect(fn,fi,tn,ti){
   const g=G();
   if(fn===tn) return;
@@ -529,21 +515,9 @@ function connect(fn,fi,tn,ti){
     const portType=(portsOf(dst).ins[ti]||{}).type;
     const mergeKind=mergeKindFor(portType);
     if(!mergeKind){ toast('this input already has a connection — only boolean (→OR) or numeric (→ADD) inputs accept more than one wire'); return; }
-    /* a real structural change is about to happen from here on — clear
-       every tree's stored offset so computeLayout re-anchors around
-       wherever each one currently sits (see resetTreeOffsets/
-       computeLayout in model.js). If this wire is about to join two
-       previously separate trees, this is what makes the older of the two
-       stay exactly in place while the newer one snaps into the unified
-       layout around it — see alignFormerSubordinate below for what keeps
-       the REST of the newer tree traveling along with it, rigidly. */
-    resetTreeOffsets(g);
-    const merging=!treeOf(g,[fn]).has(tn);
-    const subTreeIds=merging?[...treeOf(g,[tn])]:null;
-    const beforeTnAbs=merging?{x:dst.x,y:dst.y}:null;
     const exFn=existing.f[0], exFi=existing.f[1];
     const mt=typeOf(mergeKind);
-    const m={id:uid('n'),k:'blk',type:mergeKind,params:{},ox:0,oy:0};
+    const m={id:uid('n'),k:'blk',type:mergeKind,params:{}};
     /* netor has no palette existence of its own (hidden:true) — it only
        ever appears through this auto-merge path, so it keeps the auto
        marker (tiny dot rendering, collapses away on its own once reduced
@@ -560,16 +534,10 @@ function connect(fn,fi,tn,ti){
     _wireUp(g,exFn,exFi,m.id,0);
     _wireUp(g,fn,fi,m.id,1);
     _wireUp(g,m.id,0,tn,ti);
-    if(merging) alignFormerSubordinate(g,tn,subTreeIds,beforeTnAbs);
     renderGraph(); markDirty();
     return;
   }
-  resetTreeOffsets(g);   // see the comment above — this wire may be joining two previously separate trees
-  const merging=!treeOf(g,[fn]).has(tn);
-  const subTreeIds=merging?[...treeOf(g,[tn])]:null;
-  const beforeTnAbs=merging?{x:nodeById(tn).x,y:nodeById(tn).y}:null;
   _wireUp(g,fn,fi,tn,ti);
-  if(merging) alignFormerSubordinate(g,tn,subTreeIds,beforeTnAbs);
   renderGraph(); markDirty();
 }
 function _wireUp(g,fn,fi,tn,ti){
@@ -612,27 +580,25 @@ function collapseAutoNode(g,nodeId){
 
 /* ---------- canvas interaction ------------------------------------ */
 let drag=null;
-/* free-drag: moves n's own ISLAND (rootIslands in model.js — n's forward
-   closure, not necessarily the whole connected component it happens to
-   share with unrelated side-roots) by directly incrementing its stored
-   (ox,oy) offset with the cursor, instead of the row-reorder splice
-   dragPreview() does. Scoped to exactly the island computeLayout would
-   assign n to — anything wider (e.g. the whole treeOf component) would
-   drag along nodes computeLayout doesn't consider n's to move, which
-   would just get overwritten back on the very next render. No collision
-   avoidance — two trees/islands are free to overlap, per explicit spec —
-   so this is nothing more than "add the cursor's delta to wherever this
-   island's offset already was". */
+/* free-drag: moves n's whole tree (treeOf — its connected component) by
+   directly incrementing the cursor's delta into ITS ONE shared
+   graph.treePos entry (model.js), instead of the row-reorder splice
+   dragPreview() does. computeLayout always finds this tree's entry
+   before the very first render a user could click into, so it's safe to
+   just look it up rather than guess. No collision avoidance — two trees
+   are free to overlap, per explicit spec — so this is nothing more than
+   "add the cursor's delta to wherever this tree's offset already was". */
 function startFreeDrag(g,n,e){
   selectOnly(n.id);
   const treeIds=[...treeOf(g,[n.id])];
-  const treeNodes=g.nodes.filter(x=>treeIds.includes(x.id));
-  const island=rootIslands(g,treeNodes).find(isl=>isl.some(x=>x.id===n.id));
-  const ids=island.map(x=>x.id);
+  g.treePos=g.treePos||[];
+  let entry=null;
+  for(const id of treeIds){ entry=g.treePos.find(x=>x.seed===id); if(entry) break; }
+  if(!entry){ entry={seed:n.id,ox:0,oy:0}; g.treePos.push(entry); }   // defensive — computeLayout always creates one before this is reachable
   const start=toGraph(e.clientX,e.clientY);
-  const baseOx=n.ox||0, baseOy=n.oy||0;
-  ids.forEach(id=>{const d=nodesL.querySelector(`.node[data-id="${id}"]`); if(d)d.classList.add('moving');});
-  drag={type:'freemove',treeIds:ids,start,baseOx,baseOy,moved:false};
+  const baseOx=entry.ox, baseOy=entry.oy;
+  treeIds.forEach(id=>{const d=nodesL.querySelector(`.node[data-id="${id}"]`); if(d)d.classList.add('moving');});
+  drag={type:'freemove',entry,treeIds,start,baseOx,baseOy,moved:false};
 }
 cwrap.addEventListener('mousedown',e=>{
   if(e.button===1||e.button===2) return;
@@ -699,9 +665,9 @@ document.addEventListener('mousemove',e=>{
   else if(drag.type==='freemove'){
     drag.moved=true;
     const p=toGraph(e.clientX,e.clientY);
-    const ox=snap(drag.baseOx+(p.x-drag.start.x)), oy=snap(drag.baseOy+(p.y-drag.start.y));
+    drag.entry.ox=snap(drag.baseOx+(p.x-drag.start.x));
+    drag.entry.oy=snap(drag.baseOy+(p.y-drag.start.y));
     const g=G();
-    drag.treeIds.forEach(id=>{ const n=nodeById(id); if(n){ n.ox=ox; n.oy=oy; } });
     computeLayout(g);
     for(const n of g.nodes){ const d=nodesL.querySelector(`.node[data-id="${n.id}"]`); if(d){d.style.left=n.x+'px'; d.style.top=n.y+'px';} }
     rerouteAll(); }
