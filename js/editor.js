@@ -430,7 +430,7 @@ function updateWires(fast){
       path.style.filter=c.glow?'drop-shadow(0 0 4px '+c.stroke+')':''; }
     else { path.style.stroke=''; path.style.strokeWidth=''; path.style.filter=''; }
     const tx=grp.querySelector('text');
-    const label = (back?'\u21ba z\u207b\u00b9':'') + (has&&showVals?(back?' ':'')+fmt(v):'');
+    const label = has&&showVals?fmt(v):'';
     if(label){ tx.textContent=label;
       let mid={x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2};
       try{ const L=hit.getTotalLength(); if(L>0) mid=hit.getPointAtLength(L*0.5); }catch(e){}
