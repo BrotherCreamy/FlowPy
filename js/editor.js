@@ -578,19 +578,27 @@ function collapseAutoNode(g,nodeId){
 
 /* ---------- canvas interaction ------------------------------------ */
 let drag=null;
-/* free-drag: moves a whole tree by directly incrementing its stored
-   (ox,oy) offset (see computeLayout in model.js) with the cursor, instead
-   of the row-reorder splice dragPreview() does. No collision avoidance —
-   two trees are free to overlap, per explicit spec — so this is nothing
-   more than "add the cursor's delta to wherever this tree's offset
-   already was". */
+/* free-drag: moves n's own ISLAND (rootIslands in model.js — n's forward
+   closure, not necessarily the whole connected component it happens to
+   share with unrelated side-roots) by directly incrementing its stored
+   (ox,oy) offset with the cursor, instead of the row-reorder splice
+   dragPreview() does. Scoped to exactly the island computeLayout would
+   assign n to — anything wider (e.g. the whole treeOf component) would
+   drag along nodes computeLayout doesn't consider n's to move, which
+   would just get overwritten back on the very next render. No collision
+   avoidance — two trees/islands are free to overlap, per explicit spec —
+   so this is nothing more than "add the cursor's delta to wherever this
+   island's offset already was". */
 function startFreeDrag(g,n,e){
   selectOnly(n.id);
   const treeIds=[...treeOf(g,[n.id])];
+  const treeNodes=g.nodes.filter(x=>treeIds.includes(x.id));
+  const island=rootIslands(g,treeNodes).find(isl=>isl.some(x=>x.id===n.id));
+  const ids=island.map(x=>x.id);
   const start=toGraph(e.clientX,e.clientY);
   const baseOx=n.ox||0, baseOy=n.oy||0;
-  treeIds.forEach(id=>{const d=nodesL.querySelector(`.node[data-id="${id}"]`); if(d)d.classList.add('moving');});
-  drag={type:'freemove',treeIds,start,baseOx,baseOy,moved:false};
+  ids.forEach(id=>{const d=nodesL.querySelector(`.node[data-id="${id}"]`); if(d)d.classList.add('moving');});
+  drag={type:'freemove',treeIds:ids,start,baseOx,baseOy,moved:false};
 }
 cwrap.addEventListener('mousedown',e=>{
   if(e.button===1||e.button===2) return;

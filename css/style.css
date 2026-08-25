@@ -95,8 +95,6 @@ label{font-size:11px;color:var(--fg2)}
 
 .node{position:absolute;background:var(--bg2);border:1px solid var(--line2);border-radius:7px;
   box-shadow:0 3px 12px rgba(0,0,0,.45);user-select:none;font-size:12px}
-.node.sel{border-color:var(--acc)}   /* box-shadow glow removed — no glowy business; the active selection indicator is the outline rule below */
-.node.moving{outline:1px dashed rgba(79,163,255,.7);outline-offset:3px}
 .node.err{border-color:var(--err)}
 .node .hd{height:20px;display:flex;align-items:center;gap:5px;padding:0 6px;border-radius:6px 6px 0 0;font-size:14px;
   line-height:1;background:linear-gradient(#232c39,#1b222c);border-bottom:1px solid var(--line);cursor:move;font-weight:400;overflow:hidden}
@@ -211,10 +209,13 @@ button,input,select,textarea,.palitem,.plist,.chip,.mbox,pre.code,textarea.code,
   background-size:100% calc(100% - var(--hdr,20px))}
 /* selected: the block's BODY recolors to the same electric blue a selected
    wire's stroke uses (--acc) — --nbody is what .node's own background
-   gradient (below) reads, so overriding it here is enough; .hd keeps its
-   own always-dark background untouched, which is what reads as "the
-   title bar shaded darker" against the now-blue body. */
+   gradient (below) reads, so overriding it here is enough. The title bar
+   goes blue too, but a darker shade (--acc2, the same muted blue already
+   used for a primary button's hover state) — .hd-bar is what actually
+   paints over the title area (see its own rule further down), so that's
+   what needs the override; plain color, no outline. */
 .node.sel{--nbody:var(--acc);box-shadow:none}
+.node.sel .hd,.node.sel .hd-bar{background:var(--acc2)}
 /* dragging: everything in the drag's scope (see startFreeDrag/dragPreview
    in editor.js) goes 50% translucent instead of an outline. */
 .node.moving{opacity:.5}
