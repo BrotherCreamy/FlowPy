@@ -1090,7 +1090,7 @@ function histRestore(json){
 }
 function undo(){ if(HISTI<=0) return; HISTI--; histRestore(HIST[HISTI]); }
 function redo(){ if(HISTI>=HIST.length-1) return; HISTI++; histRestore(HIST[HISTI]); }
-function markDirty(){ dirty=true; histSnapshot(); try{ generate(); setStatus(statusBase,statusKind); }catch(e){ setStatus('codegen: '+e.message,'err'); }
+function markDirty(){ dirty=true; histSnapshot(); try{ generate(); setStatus(statusBase,statusKind); writeToHandle(); }catch(e){ setStatus('codegen: '+e.message,'err'); }
   if(TAB==='code') renderCode(); if(TAB==='vars') renderVars(); }
 function dl(name,txt,mime){ const b=new Blob([txt],{type:mime||'text/plain'}); const u=URL.createObjectURL(b);
   const a=el('a',{href:u,download:name}); document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),1000); }

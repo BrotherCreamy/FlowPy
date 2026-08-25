@@ -248,6 +248,15 @@ colour ramp plus a value label. Open a composite block while running to watch in
 in the breadcrumb if it is used more than once. The <i>Vars</i> tab shows live values and can force a value onto the
 running device.
 <br><br>
+<b>Saving your work</b><br>
+There's no separate project file — <b>Save</b> writes one plain <code>.py</code> file: the real, runnable program,
+with the diagram itself embedded alongside it as a marked comment block a Python interpreter just ignores.
+<b>Open</b> reads that same block back to reconstruct the exact diagram. In Chrome/Edge, the first Save (or Open) asks
+you to pick a file once, then every further edit writes straight back to it automatically — no re-saving needed.
+Elsewhere it's a plain download/upload each time. Nothing is ever kept only in the browser tab, and a file handle
+doesn't survive a refresh — reloading the page always starts over from the built-in demo project, so open your own
+file again (or Save a fresh one) after refreshing to pick up where you left off.
+<br><br>
 <b>Board setup</b><br>
 Any board running MicroPython (ESP32, RP2040, STM32…). Nothing needs to be installed on it — FlowPy talks to the
 REPL. The generated code is plain MicroPython; the <i>Code</i> tab lets you copy or download it.
@@ -257,8 +266,36 @@ function showHelp(){ $('#mbox').innerHTML=HELP+`<div class="mrow"><button class=
 $('#bHelp').onclick=showHelp;
 $('#modal').onclick=e=>{ if(e.target.id==='modal') $('#modal').classList.remove('on'); };
 
-/* ---- project I/O ---------------------------------------------------- */
-function saveProject(){ dl((P_.name||'flowpy')+'.json', JSON.stringify(P_,null,1), 'application/json'); log('· saved','g'); }
+/* ---- project I/O ------------------------------------------------------
+   One .py file is the whole project — see fileContent()/parseManifest()
+   in codegen.js for the format. Where the File System Access API exists
+   (Chromium-based browsers), fileHandle keeps a live handle to whatever
+   file the user last picked via Save or Open, and every edit re-writes
+   it (writeToHandle, called from markDirty in editor.js) — no separate
+   "sync" step, no separate project format. Elsewhere it degrades to a
+   plain download/upload each time, same shape the old .json flow always
+   had, just this format instead. */
+let fileHandle=null;
+async function writeToHandle(){
+  if(!fileHandle) return;
+  try{ const w=await fileHandle.createWritable(); await w.write(fileContent()); await w.close(); }
+  catch(e){ log('· lost the synced file, pick it again with Save: '+e.message,'e'); fileHandle=null; }
+}
+function saveProject(){
+  if('showSaveFilePicker' in window){
+    (async()=>{
+      try{
+        if(!fileHandle) fileHandle=await window.showSaveFilePicker(
+          {suggestedName:(P_.name||'flowpy')+'.py', types:[{description:'Python',accept:{'text/x-python':['.py']}}]});
+        await writeToHandle();
+        log('· saved — every further edit writes straight back to this file','g');
+      }catch(e){ if(e.name!=='AbortError') log('· save failed: '+e.message,'e'); }
+    })();
+    return;
+  }
+  dl((P_.name||'flowpy')+'.py', fileContent(), 'text/x-python');
+  log('· saved (this browser can\'t auto-sync — Save again whenever you want to update the file)','g');
+}
 function loadProject(obj){
   P_=Object.assign(emptyProject(),obj);
   let mx=0; const scan=g=>g&&g.nodes&&g.nodes.forEach(n=>{const m=+String(n.id).slice(1); if(m>mx)mx=m;});
@@ -267,12 +304,30 @@ function loadProject(obj){
   HIST=[]; HISTI=-1;    // a freshly loaded project starts its own undo history, not the old one's
   snapProject(P_); tagProject(P_); renderPalette(); renderGraph(); markDirty();
 }
+function loadFromPyText(text,name){
+  try{ loadProject(parseManifest(text)); log('· loaded '+(name||'')+(fileHandle?' — now syncing edits back to it':''),'g'); }
+  catch(err){ log('bad project file: '+err.message,'e'); }
+}
 $('#bSave').onclick=saveProject;
-$('#bLoad').onclick=()=>$('#fileIn').click();
+$('#bLoad').onclick=()=>{
+  if('showOpenFilePicker' in window){
+    (async()=>{
+      try{
+        const [h]=await window.showOpenFilePicker({types:[{description:'Python',accept:{'text/x-python':['.py']}}]});
+        const file=await h.getFile();
+        const text=await file.text();
+        fileHandle=h;
+        loadFromPyText(text,file.name);
+      }catch(e){ if(e.name!=='AbortError') log('· open failed: '+e.message,'e'); }
+    })();
+    return;
+  }
+  $('#fileIn').click();
+};
 $('#fileIn').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader();
-  r.onload=()=>{ try{ loadProject(JSON.parse(r.result)); log('· loaded '+f.name,'g'); }catch(err){ log('bad project file: '+err.message,'e'); } };
+  r.onload=()=>{ loadFromPyText(r.result,f.name); };
   r.readAsText(f); e.target.value=''; };
-$('#bNew').onclick=()=>{ if(!confirm('Discard current project?')) return; loadProject(emptyProject()); };
+$('#bNew').onclick=()=>{ if(!confirm('Discard current project?')) return; fileHandle=null; loadProject(emptyProject()); };
 $('#bConnect').onclick=()=> connected? disconnectSerial() : connectSerial();
 $('#bDeploy').onclick=deploy;
 $('#bPatch').onclick=()=> SIM.on? simPatch() : patch();
