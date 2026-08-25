@@ -152,9 +152,10 @@ def({id:'print',name:'PRINT',kind:'FB',group:'Debug',params:[P('label','str','x'
 
 /* connections are not 1:1. A wire fed by more than one output is one input
    receiving two different values that need combining — that always takes a
-   real computation, so it still gets a hidden merge block (OR'd together
-   here; ADD is the numeric equivalent, defined above as the ordinary
-   visible 'add', reused with .auto set — see mergeKindFor() in editor.js).
+   real computation, so it gets a real, ordinary merge block spliced in: OR
+   for a boolean input, ADD (defined above) for a numeric one — see
+   mergeKindFor() in editor.js, which auto-inserts either one to look and
+   behave exactly like dragging it in by hand.
    A wire feeding more than one input is the opposite case: every consumer
    wants the exact same value, which is just a wire branching — no block,
    hidden or otherwise, needed at all. codegen already assigns every
@@ -162,6 +163,10 @@ def({id:'print',name:'PRINT',kind:'FB',group:'Debug',params:[P('label','str','x'
    read it (outVar() in codegen.js), so that's the "hidden variable" — it
    already existed; only the router's fan-out trimming (js/router.js) was
    needed to draw the branch instead of retracing it once per consumer. */
+/* legacy only — the boolean merge case above used to auto-insert this
+   hidden lookalike instead of a real OR; kept, still hidden from the
+   palette, purely so a project saved back then still renders and
+   simulates correctly. Nothing creates a new one anymore. */
 def({id:'netor',name:'•',kind:'F',hidden:true,group:'Logic',ins:[IO('a','bool'),IO('b','bool')],outs:[IO('q','bool')],step:'return bool(a) or bool(b)'});
 
 const BUILTIN = {}; B.forEach(t=>BUILTIN[t.id]=t);

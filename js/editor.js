@@ -484,13 +484,19 @@ function delSelection(){
    Connections are not 1:1, but only fan-IN (an input fed by more than one
    output) is a node's problem: combining two different values into one
    always takes a real computation, so a boolean input fed by 2+ outputs
-   gets a hidden OR (netor), and a numeric input fed by 2+ outputs gets a
-   hidden ADD — chained pairwise for 3+ sources. Fan-OUT (an output feeding
-   more than one input) needs no node at all: every consumer wants the exact
-   same value, which is just a wire branching, same as a real wire splitting
-   at a junction — see the router's fan-out trimming in js/router.js for how
-   that's drawn without duplicating or overlapping the shared run. */
-function mergeKindFor(portType){ return portType==='bool'?'netor' : portType==='num'?'add' : null; }
+   gets a real, ordinary OR block spliced in, and a numeric input fed by
+   2+ outputs gets a real ADD — chained pairwise for 3+ sources, and both
+   auto-inserted to look and behave exactly like dragging one in by hand:
+   no dashed border, no "auto" tag, doesn't disappear on its own if a wire
+   gets disconnected down to one input, same as any other block wouldn't
+   (see mt.hidden below — neither type sets that flag, so neither gets
+   the auto-marker/auto-collapse treatment the now-legacy hidden netor
+   type below once did). Fan-OUT (an output feeding more than one input)
+   needs no node at all: every consumer wants the exact same value, which
+   is just a wire branching, same as a real wire splitting at a junction —
+   see the router's fan-out trimming in js/router.js for how that's drawn
+   without duplicating or overlapping the shared run. */
+function mergeKindFor(portType){ return portType==='bool'?'or' : portType==='num'?'add' : null; }
 /* connect() itself needs no position-handling code at all — merging two
    previously separate trees just means computeLayout (model.js) finds
    them as one connected component next render and looks up ONE shared
@@ -518,15 +524,13 @@ function connect(fn,fi,tn,ti){
     const exFn=existing.f[0], exFi=existing.f[1];
     const mt=typeOf(mergeKind);
     const m={id:uid('n'),k:'blk',type:mergeKind,params:{}};
-    /* netor has no palette existence of its own (hidden:true) — it only
-       ever appears through this auto-merge path, so it keeps the auto
-       marker (tiny dot rendering, collapses away on its own once reduced
-       to one input). ADD is a real, ordinary palette block; auto-inserting
-       one here should look and behave exactly like dragging one in by
-       hand — no dashed border, no "auto" tag, and it doesn't disappear on
-       its own if a wire gets disconnected down to one input, same as any
-       other block wouldn't. */
-    if(mt.hidden) m.auto=mergeKind;
+    /* both OR and ADD are real, ordinary palette blocks (see
+       mergeKindFor's own comment) — auto-inserting one here looks and
+       behaves exactly like dragging one in by hand, no auto-marker. That
+       marker (m.auto, checked by collapseAutoNode below, .node.auto in
+       CSS) has no live creation path left as of this change; it's kept
+       only so a project saved back when the boolean case used a hidden
+       merge type still renders and collapses correctly. */
     (mt.params||[]).forEach(p=>m.params[p.name]=p.def);
     g.wires=g.wires.filter(w=>w!==existing);
     const afterSrc=g.nodes.findIndex(n=>n.id===exFn);
@@ -558,9 +562,11 @@ function _wireUpRaw(g,fn,fi,tn,ti){
   w.back=forwardClosure(g,[tn]).has(fn);
   g.wires.push(w);
 }
-/* a merge block (netor/ADD) left with one or zero remaining inputs is
-   pointless — collapses back to a plain direct wire (or vanishes entirely
-   if there's nothing left to connect) rather than leaving a stray auto
+/* a legacy auto-marked merge block (see connect()'s own comment — new
+   ones are never created this way anymore, but an old save might still
+   have one) left with one or zero remaining inputs is pointless —
+   collapses back to a plain direct wire (or vanishes entirely if
+   there's nothing left to connect) rather than leaving a stray auto
    block with a dangling port. Fan-out has no node to collapse: removing a
    consumer is just removing its wire, and the branch it drew simply stops
    existing on the next reroute. */
