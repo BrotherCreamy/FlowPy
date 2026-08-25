@@ -493,6 +493,31 @@ function delSelection(){
    at a junction — see the router's fan-out trimming in js/router.js for how
    that's drawn without duplicating or overlapping the shared run. */
 function mergeKindFor(portType){ return portType==='bool'?'netor' : portType==='num'?'add' : null; }
+/* after a wire that just merged two previously separate trees, this makes
+   the FORMER SUBORDINATE tree move as one rigid unit. computeLayout
+   (model.js) already correctly snaps tn's own island — everything tn now
+   forward-feeds — into line with the parent, since that's driven by real
+   structure (tn gained a forward-in). But an unrelated side-root within
+   that same former tree (a CONST feeding sideways into a block some
+   entirely different chain also feeds — see rootIslands in model.js) has
+   no NEW structural reason to move, so computeLayout's generic per-island
+   rule just freezes it at its own last absolute position — which reads as
+   "left behind" the instant tn's own island snaps away from it. This
+   nudges every such leftover island by the SAME amount tn itself just
+   moved, so the whole former subordinate tree travels together, keeping
+   how it looked relative to ITSELF, not just relative to the canvas. */
+function alignFormerSubordinate(g,tn,subTreeIds,beforeTnAbs){
+  computeLayout(g);   // fresh positions reflecting the wire just added
+  const after=nodeById(tn);
+  const dx=snap(after.x-beforeTnAbs.x), dy=snap(after.y-beforeTnAbs.y);
+  if(!dx && !dy) return;
+  const tnClosure=forwardClosure(g,[tn]);
+  for(const id of subTreeIds){
+    if(id===tn || tnClosure.has(id)) continue;
+    const n=nodeById(id); if(!n) continue;
+    n.ox=snap((n.ox||0)+dx); n.oy=snap((n.oy||0)+dy);
+  }
+}
 function connect(fn,fi,tn,ti){
   const g=G();
   if(fn===tn) return;
@@ -510,8 +535,12 @@ function connect(fn,fi,tn,ti){
        computeLayout in model.js). If this wire is about to join two
        previously separate trees, this is what makes the older of the two
        stay exactly in place while the newer one snaps into the unified
-       layout around it. */
+       layout around it — see alignFormerSubordinate below for what keeps
+       the REST of the newer tree traveling along with it, rigidly. */
     resetTreeOffsets(g);
+    const merging=!treeOf(g,[fn]).has(tn);
+    const subTreeIds=merging?[...treeOf(g,[tn])]:null;
+    const beforeTnAbs=merging?{x:dst.x,y:dst.y}:null;
     const exFn=existing.f[0], exFi=existing.f[1];
     const mt=typeOf(mergeKind);
     const m={id:uid('n'),k:'blk',type:mergeKind,params:{},ox:0,oy:0};
@@ -531,11 +560,16 @@ function connect(fn,fi,tn,ti){
     _wireUp(g,exFn,exFi,m.id,0);
     _wireUp(g,fn,fi,m.id,1);
     _wireUp(g,m.id,0,tn,ti);
+    if(merging) alignFormerSubordinate(g,tn,subTreeIds,beforeTnAbs);
     renderGraph(); markDirty();
     return;
   }
   resetTreeOffsets(g);   // see the comment above — this wire may be joining two previously separate trees
+  const merging=!treeOf(g,[fn]).has(tn);
+  const subTreeIds=merging?[...treeOf(g,[tn])]:null;
+  const beforeTnAbs=merging?{x:nodeById(tn).x,y:nodeById(tn).y}:null;
   _wireUp(g,fn,fi,tn,ti);
+  if(merging) alignFormerSubordinate(g,tn,subTreeIds,beforeTnAbs);
   renderGraph(); markDirty();
 }
 function _wireUp(g,fn,fi,tn,ti){
