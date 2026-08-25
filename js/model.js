@@ -604,7 +604,24 @@ function corridorGap(graph,s,n,prior,rowOf){
     const w=graph.wires.find(w=>w.t[0]===n.id&&w.t[1]===i&&!isBack(graph,w));
     if(!w||w.f[0]===s.id) continue;                        // wires from s itself are already counted via `branches`
     const src=graph.nodes.find(x=>x.id===w.f[0]); if(!src) continue;
-    if(portPos(src,'out',w.f[1]).y!==portPos(n,'in',i).y) bentOther++;
+    /* a floating root layoutRows joined into n's own row (see its own
+       comment) isn't just bending a WIRE through this corridor, it's
+       going to sit IN it (positionFloatingRoots) — reserve its actual
+       block width plus its own MINGAP clearance, not the flat one-lane
+       wire-bend allowance an ordinary bent input needs. Checked via
+       rowOf (already a fresh, purely structural answer this same call)
+       BEFORE the plain y-comparison below, which reads n.y/src.y — those
+       reflect the LAST completed render's pixel layout, since layoutX
+       (this function) always runs before layoutY fills in this one's;
+       for a brand-new node (like an auto-merge block just spliced in)
+       that's flat-out undefined on its first-ever call. Gating the
+       width reservation behind that stale comparison instead of rowOf
+       let it misfire on exactly that first render, self-correcting to
+       the right answer only from the second render on — a visible
+       one-time jump instead of a stable result from the start. */
+    if(rowOf[src.id]===rowOf[n.id]&&isRoot(graph,src.id)){ bentOther+=Math.ceil((nodeSize(src).w+MINGAP)/LANE); continue; }
+    if(portPos(src,'out',w.f[1]).y===portPos(n,'in',i).y) continue;
+    bentOther++;
   }
   let crossing=0;
   if(prior){
@@ -693,6 +710,17 @@ function positionFloatingRoots(graph,rowOf){
     const targets=graph.wires.filter(w=>w.f[0]===n.id&&!isBack(graph,w))
       .map(w=>graph.nodes.find(x=>x.id===w.t[0])).filter(Boolean);
     if(!targets.length) continue;
+    if(targets.length===1 && rowOf[n.id]===rowOf[targets[0].id]){
+      /* layoutRows joined this root into its one target's own row (see
+         its own comment on floatingRootsFeeding) instead of giving it a
+         separate one — corridorGap already reserved this root's real
+         width in the corridor leading up to the target (see its own
+         comment), so it just sits immediately before it; no obstacle
+         scan needed, the same way an ordinary forward node never has to
+         scan for one either. */
+      n.x=snap(targets[0].x-MINGAP-nodeSize(n).w);
+      continue;
+    }
     let leftmost=Math.min(...targets.map(t=>t.x));
     for(const t of targets){
       const r0=Math.min(rowOf[n.id],rowOf[t.id]), r1=Math.max(rowOf[n.id],rowOf[t.id]);
@@ -808,7 +836,20 @@ function layoutRows(graph){
       placed.add(id);
       rows[rowIdx].push(id);
       let cursor=Math.max(rowIdx,startCursor===undefined?rowIdx:startCursor);
-      for(const r of floatingRootsFeeding(id)){
+      const floaters=floatingRootsFeeding(id);
+      /* the unambiguous case — exactly one root feeding id, and id is
+         the ONLY thing it feeds — joins id's own row directly instead of
+         claiming a separate one: there's nothing else it could need to
+         make room for or compete with for that slot, so it can sit
+         literally beside id (positionFloatingRoots/corridorGap, model.js,
+         reserve it real width to do exactly that) rather than being
+         routed in from a different row. Anything less clear-cut (more
+         than one floating root feeding id, or one that feeds something
+         ELSE too) falls back to the general insert-a-new-row case below,
+         same as it always has. */
+      if(floaters.length===1 && forwardOutsOf(floaters[0]).length===1){
+        cursor=Math.max(cursor,place(floaters[0],rowIdx,cursor));
+      } else for(const r of floaters){
         const at=cursor+1;
         rows.splice(at,0,[]);
         cursor=place(r,at);
