@@ -448,7 +448,23 @@ function nodeSize(n){
    the ports inside them do. */
 function portPos(n, side, i){
   const s=nodeSize(n);
-  if(n.k==='fanout') return { x: n.x + (side==='in'?0:s.w), y: n.y + s.h/2 };   // centered in its own tiny box — the VPAD/HDR_ header offset every other kind uses doesn't apply to something with no header
+  /* both in and out sit at exactly (n.x, n.y) — no s.w/s.h offset either
+     way. Every other kind's ports land on n.y plus a sum of GRID-multiple
+     constants (VPAD, HDR_(), ROW_()), which is what keeps them on the same
+     GRID lattice the router's cellWalk/pathClear/markUsed all assume (each
+     steps by exactly GRID and expects to land exactly on the far endpoint);
+     centering vertically in the box's own GRID-tall height (s.h/2, a half
+     step) broke that, and cellWalk would silently walk clean past a target
+     on the wrong half-grid and run to its guard cap instead of ever landing
+     on it. Horizontally, nodeSize's GRID width is real for spacing/obstacle
+     purposes — layoutX still needs a nonzero footprint to give this node
+     its own slot — but this box never renders, so a wire never needs to
+     visibly cross it: putting the out port at n.x+s.w left a gap between
+     where the incoming wire ends and the outgoing one begins that reads as
+     a broken wire, not as a block with width. Collapsing both ports onto
+     the same point removes both problems: nothing to walk off-grid, and
+     nothing left to visibly cross. */
+  if(n.k==='fanout') return { x: n.x, y: n.y };
   return { x: n.x + (side==='in'?0:s.w), y: n.y + VPAD + HDR_() + i*ROW_() };
 }
 /* a wire that does not travel strictly left-to-right is a feedback wire:

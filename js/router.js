@@ -353,8 +353,21 @@ function computeVisualPaths(g){
     const wOff=offsetOf[id]||{}, out=[];
     for(const s of segs){
       const off=wOff[s.segIdx]||0;
-      out.push(s.horiz?{x:s.a.x,y:s.a.y+off}:{x:s.a.x+off,y:s.a.y});
-      out.push(s.horiz?{x:s.b.x,y:s.b.y+off}:{x:s.b.x+off,y:s.b.y});
+      const pa=s.horiz?{x:s.a.x,y:s.a.y+off}:{x:s.a.x+off,y:s.a.y};
+      const pb=s.horiz?{x:s.b.x,y:s.b.y+off}:{x:s.b.x+off,y:s.b.y};
+      const prev=out[out.length-1];
+      /* a segment's offset only ever moves it along its own constant axis
+         (a horizontal run shifts in y, a vertical one in x), so when this
+         segment's neighbor got a DIFFERENT offset, the point they used to
+         share as a corner splits into two points that agree on neither
+         coordinate — connecting them directly draws a genuine diagonal,
+         not a corner. Bridge it with one more right-angle point (this
+         segment's own moved axis, the previous point's other axis) so the
+         two lane-shifts show up as a proper jog; simplify() below then
+         fuses that bridge into whichever run it's collinear with. */
+      if(prev&&prev.x!==pa.x&&prev.y!==pa.y) out.push(s.horiz?{x:prev.x,y:pa.y}:{x:pa.x,y:prev.y});
+      out.push(pa);
+      out.push(pb);
     }
     VISPTS[id]=simplify(out);
   }
