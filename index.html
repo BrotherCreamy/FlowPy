@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FlowPy — node IDE for MicroPython</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#000000">
 </head>
 <body>
 <div id="app">
@@ -77,5 +80,10 @@
 <script src="js/codegen.js"></script>
 <script src="js/sim-fast.js"></script>
 <script src="js/device.js"></script>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
+</script>
 </body>
 </html>

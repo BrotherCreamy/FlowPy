@@ -34,17 +34,47 @@ function handleLine(s){
   log(s,'i');
 }
 
-/* ---- Web Serial ---------------------------------------------------- */
-let port=null, writer=null, readerAbort=null, rxbuf='', connected=false;
+/* ---- transports ------------------------------------------------------
+   Two ways to reach a board's REPL: Web Serial over USB, or a WebSocket
+   to its WebREPL (MicroPython's built-in wireless REPL, tunneled over
+   WiFi — see esp32/README.md). Both end up as the same thing once
+   connected: a duplex byte stream carrying raw-REPL control bytes,
+   !T/!L/!E/!K telemetry lines, and P/V/Q commands — so deploy(), patch(),
+   stopDev() and forceVar() below don't know or care which one is live;
+   they just call wr()/wrChunks(). TRANSPORT + connected are the only
+   shared state the rest of the app reads. */
+let TRANSPORT=null;             // null | 'serial' | 'wifi'
+let connected=false, rxbuf='';
+function hasSerial(){ return 'serial' in navigator; }
+function feedRx(s){
+  rxbuf+=s;
+  let i; while((i=rxbuf.indexOf('\n'))>=0){ const line=rxbuf.slice(0,i); rxbuf=rxbuf.slice(i+1); handleLine(line); }
+  if(rxbuf.length>20000) rxbuf='';
+}
+function setConnectedUI(label){
+  connected=true; setBase(label,'on');
+  $('#bDeploy').disabled=false; $('#bPatch').disabled=false; $('#bStop').disabled=false;
+  $('#bConnect').textContent='Disconnect';
+}
+function setDisconnectedUI(){
+  connected=false; TRANSPORT=null; setBase('idle','');
+  $('#bDeploy').disabled=true; $('#bPatch').disabled=true; $('#bStop').disabled=true;
+  $('#bConnect').textContent='Connect device';
+}
+async function wr(s){
+  if(TRANSPORT==='wifi'){ if(wsPort&&wsPort.readyState===1) wsPort.send(s); return; }
+  if(!writer) return; await writer.write(new TextEncoder().encode(s));
+}
+
+/* ---- Web Serial (USB) ------------------------------------------------ */
+let port=null, writer=null, readerAbort=null;
 async function connectSerial(){
-  if(!('serial' in navigator)){ alert('This browser has no Web Serial API.\nUse Chrome/Edge/Opera (desktop) over https:// or file://.\nYou can still use Simulate ▶.'); return; }
+  if(!hasSerial()){ alert('This browser has no Web Serial API.\nUse Chrome/Edge/Opera (desktop) over https:// or file://.\nYou can still use Simulate ▶.'); return; }
   try{
     port=await navigator.serial.requestPort();
     await port.open({baudRate:115200});
     writer=port.writable.getWriter();
-    connected=true; setBase('connected','on');
-    $('#bDeploy').disabled=false; $('#bPatch').disabled=false; $('#bStop').disabled=false;
-    $('#bConnect').textContent='Disconnect';
+    TRANSPORT='serial'; setConnectedUI('connected (usb)');
     log('· serial connected @115200','g');
     readLoop();
     await wr('\r\x03\x03');
@@ -54,9 +84,7 @@ async function disconnectSerial(){
   try{ connected=false; if(writer){ await wr('\r\x03\x03\x02'); writer.releaseLock(); writer=null; }
     if(readerAbort) await readerAbort();
     if(port) await port.close(); }catch(e){}
-  port=null; setBase('idle','');
-  $('#bDeploy').disabled=true; $('#bPatch').disabled=true; $('#bStop').disabled=true;
-  $('#bConnect').textContent='Connect device'; log('· disconnected','i');
+  port=null; setDisconnectedUI(); log('· disconnected','i');
 }
 async function readLoop(){
   const dec=new TextDecoder();
@@ -65,15 +93,74 @@ async function readLoop(){
     readerAbort=async()=>{ try{ await reader.cancel(); }catch(e){} };
     try{
       while(true){ const {value,done}=await reader.read(); if(done) break;
-        rxbuf+=dec.decode(value,{stream:true});
-        let i; while((i=rxbuf.indexOf('\n'))>=0){ const line=rxbuf.slice(0,i); rxbuf=rxbuf.slice(i+1); handleLine(line); }
-        if(rxbuf.length>20000) rxbuf=''; }
+        feedRx(dec.decode(value,{stream:true})); }
     }catch(e){ if(connected) log('read: '+e.message,'e'); }
     finally{ try{reader.releaseLock();}catch(e){} }
     if(!connected) break;
   }
 }
-async function wr(s){ if(!writer) return; await writer.write(new TextEncoder().encode(s)); }
+
+/* ---- WiFi (WebREPL) --------------------------------------------------
+   When the page is loaded from the board itself, there's only one
+   connection to speak of — the board's built-in WebREPL
+   (ws://<host>:8266/, brought up in esp32/boot.py) — and it's already
+   there the moment the page loads, same as the HTTP connection that just
+   served this page. So there's nothing to "connect" by hand: FlowPy opens
+   it automatically on boot, keeps retrying if it drops, and just reports
+   connected/disconnected in the status pill — no button, no port picker.
+   WebREPL prompts for a password once per link; after that it's the exact
+   same REPL byte stream Web Serial gets over USB, raw-REPL and all,
+   because MicroPython wires it in below the level of whatever script
+   currently owns the foreground (which is what lets it survive Deploy
+   replacing the running program). */
+let wsPort=null, wsPassword='flowpy', wifiWanted=false, wifiRetryTimer=null;
+let wifiEverConnected=false, wifiFailLogged=false;
+function scheduleWifiRetry(){
+  if(!wifiWanted||wifiRetryTimer) return;
+  setBase('reconnecting…','busy');
+  wifiRetryTimer=setTimeout(()=>{ wifiRetryTimer=null; connectWifi(); }, 3000);
+}
+async function connectWifi(){
+  if(!wifiWanted) return;
+  const host=location.hostname||'192.168.4.1';
+  const url='ws://'+host+':8266/';
+  setBase('connecting…','busy');
+  let sock;
+  try{
+    sock=new WebSocket(url);
+    wsPort=sock;
+    await new Promise((res,rej)=>{ sock.onopen=res; sock.onerror=()=>rej(new Error('could not reach '+url)); });
+    let authed=false;
+    sock.onmessage=async(ev)=>{
+      const text=typeof ev.data==='string'?ev.data:new TextDecoder().decode(ev.data);
+      if(!authed){
+        if(/denied/i.test(text)){
+          log('· wifi auth failed — wrong WebREPL password (see esp32/webrepl_cfg.py)','e');
+          const p=prompt('WebREPL password for '+host+':', wsPassword);
+          if(p){ wsPassword=p; await wr(p+'\r'); }
+          return;
+        }
+        if(/password/i.test(text)){ authed=true; await wr(wsPassword+'\r'); return; }
+        return;
+      }
+      feedRx(text);
+    };
+    sock.onclose=()=>{
+      if(wsPort===sock) wsPort=null;
+      if(TRANSPORT==='wifi'){ setDisconnectedUI(); log('· wifi link dropped — reconnecting…','w'); }
+      scheduleWifiRetry();
+    };
+    TRANSPORT='wifi'; setConnectedUI('connected');
+    log(wifiEverConnected?'· reconnected':'· connected to board over WiFi','g');
+    wifiEverConnected=true; wifiFailLogged=false;
+    await sleep(400);
+    await wr('\r\x03\x03');
+  }catch(e){
+    wsPort=null; setDisconnectedUI();
+    if(!wifiFailLogged){ log('· no device found at '+url+' — Simulate ▶ still works; will keep retrying','w'); wifiFailLogged=true; }
+    scheduleWifiRetry();
+  }
+}
 async function wrChunks(s,size,delay,prog){
   size=size||128; delay=delay===undefined?22:delay;   // stay under 115200 baud
   for(let i=0;i<s.length;i+=size){ await wr(s.slice(i,i+size)); if(delay) await sleep(delay);
@@ -239,8 +326,11 @@ the <i>Vars</i> tab.
 <b>Simulate</b> executes the design in the browser — the <i>Python</i> engine runs the exact generated MicroPython under
 Pyodide, the <i>fast</i> engine is an offline interpreter (builtin blocks exact; user Python must be a single
 <code>return &lt;expr&gt;</code>). <b>Connect device</b> + <b>Deploy</b> pushes the generated program to a MicroPython
-board over USB (Chrome/Edge, Web&nbsp;Serial). <b>Live patch</b> re-sends the code into the running program without
-resetting block state — edit a Python body or add blocks and patch while it runs.
+board over USB (Chrome/Edge, Web&nbsp;Serial) — or, when the editor itself is loaded from a board (see
+<code>esp32/README.md</code>), there's no separate connect step at all: FlowPy links up over that same board's WiFi
+automatically on load, and the status pill just reads connected/disconnected. <b>Live patch</b> re-sends the code
+into the running program without resetting block state — edit a Python body or add blocks and patch while it runs,
+over either transport.
 <br><br>
 <b>Debugging</b><br>
 The board streams every signal back each telemetry period. Booleans light up green, numbers get an auto-scaled
@@ -432,8 +522,14 @@ function boot(){
   applyCam(); applySizeVars(); renderPalette(); showTab('insp'); renderGraph(); markDirty();
   log('FlowPy ready.','g');
   log('· Simulate ▶ runs the exact generated MicroPython in your browser (Pyodide, virtual pins).','i');
-  log('· Connect device → Deploy ▶ pushes it to a MicroPython board over USB (Chrome/Edge).','i');
+  if(hasSerial()&&window.isSecureContext){
+    log('· Connect device → Deploy ▶ pushes it to a MicroPython board over USB (Chrome/Edge).','i');
+  } else {
+    $('#bConnect').style.display='none';
+    wifiWanted=true;
+    log('· this page is served by the board itself — connecting to it automatically over WiFi…','i');
+    connectWifi();
+  }
   log('· Live patch ⚡ re-sends code without resetting block state.','i');
-  if(!('serial' in navigator)) log('· Web Serial not available in this browser — simulation only.','w');
 }
 boot();

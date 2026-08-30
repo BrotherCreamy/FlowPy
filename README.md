@@ -17,6 +17,8 @@ FlowPy/
 
 Files are loaded as plain (non-module) scripts in dependency order and share one global scope, same as the original single-file build — just split along its existing section boundaries.
 
+It's also a PWA (`manifest.webmanifest` + `sw.js`) — installable, and once loaded once it caches its own app shell so it keeps working with no network at all (the offline "fast" simulator engine already needs none; this just means the page itself doesn't either). Service workers only register on a secure context (`https://`, `file://`, `localhost`), so this applies when hosting on a real site or dev server — not to the plain-`http://` ESP32 hosting case below, which doesn't need it anyway since nothing there comes from the internet to begin with.
+
 ## What it does
 
 | Requirement | How |
@@ -46,6 +48,8 @@ Files are loaded as plain (non-module) scripts in dependency order and share one
 - *fast (offline)*: a native interpreter over the same graph. Builtin blocks are exact; user Python blocks are supported when the body is a single `return <expr>`. Needs no network, starts instantly, and applies edits live with no deploy.
 
 **Connect device ▶ Deploy** — Web Serial (Chrome/Edge desktop). Works with any board running MicroPython (ESP32, RP2040, STM32…); nothing needs to be installed on the board. FlowPy interrupts whatever is running, enters the raw REPL, uploads the generated program and starts it.
+
+**Running entirely from an ESP32** — see [esp32/README.md](esp32/README.md): connect to the board's WiFi, open its IP for the full editor, then Connect device/Deploy/Live patch all work wirelessly too (over MicroPython's built-in WebREPL) — no USB cable, no dev-machine server, no second board.
 
 ## How the generated code works
 
